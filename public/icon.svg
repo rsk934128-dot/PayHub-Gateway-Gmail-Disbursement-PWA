@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4f46e5" />
+      <stop offset="50%" stop-color="#7c3aed" />
+      <stop offset="100%" stop-color="#06b6d4" />
+    </linearGradient>
+    <linearGradient id="glow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.8" />
+      <stop offset="100%" stop-color="#a855f7" stop-opacity="0.8" />
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#000" flood-opacity="0.4" />
+    </filter>
+  </defs>
+
+  <!-- Background rounded squircle -->
+  <rect width="512" height="512" rx="112" fill="#0f172a" />
+  <rect x="24" y="24" width="464" height="464" rx="96" fill="url(#bg)" fill-opacity="0.12" stroke="url(#bg)" stroke-width="4" />
+
+  <!-- Central Shield / Wallet Emblem -->
+  <g filter="url(#shadow)">
+    <!-- Payment Card silhouette -->
+    <rect x="106" y="146" width="300" height="190" rx="28" fill="url(#bg)" stroke="#ffffff" stroke-opacity="0.2" stroke-width="3" />
+    <rect x="106" y="196" width="300" height="34" fill="#0f172a" fill-opacity="0.4" />
+    
+    <!-- Chip -->
+    <rect x="146" y="246" width="52" height="40" rx="8" fill="#fbbf24" stroke="#d97706" stroke-width="2" />
+    <path d="M146 266h52M172 246v40" stroke="#b45309" stroke-width="1.5" />
+
+    <!-- Lightning / Exchange Arrows inside Card -->
+    <circle cx="340" cy="266" r="28" fill="#ffffff" fill-opacity="0.2" />
+    <path d="M334 250l14 16h-18l12 16" fill="none" stroke="#ffffff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" />
+  </g>
+
+  <!-- Badge for bKash & Nagad (Pink & Orange accents) & Gmail red dot -->
+  <circle cx="396" cy="136" r="30" fill="#e11d48" stroke="#ffffff" stroke-width="4" filter="url(#shadow)" />
+  <!-- Envelope icon inside red badge -->
+  <path d="M382 127h28v18h-28z" fill="none" stroke="#ffffff" stroke-width="2.5" stroke-linejoin="round" />
+  <path d="M382 128l14 10 14-10" fill="none" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+
+  <!-- Bottom Gateway dots -->
+  <circle cx="196" cy="380" r="10" fill="#e1147e" /> <!-- bKash pink -->
+  <circle cx="256" cy="380" r="10" fill="#f97316" /> <!-- Nagad orange -->
+  <circle cx="316" cy="380" r="10" fill="#6366f1" /> <!-- Stripe indigo -->
+</svg>

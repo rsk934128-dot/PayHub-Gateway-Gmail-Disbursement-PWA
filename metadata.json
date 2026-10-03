@@ -1,0 +1,6 @@
+{
+  "name": "PayHub Gateway & Gmail Disbursement PWA",
+  "description": "Enterprise-grade payment gateway hub integrating Stripe, bKash and Nagad B2C disbursements with automated Gmail API receipts and transaction ledger.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
