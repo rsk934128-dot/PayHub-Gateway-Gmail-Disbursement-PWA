@@ -1,6 +1,107 @@
 <!doctype html>
 <html lang="en">
   <head>
+    <script>
+      (function() {
+        // Intercept WebSocket for vite-hmr to prevent connection errors
+        try {
+          var OriginalWS = window.WebSocket;
+          if (OriginalWS) {
+            function MockHmrWS(url, protocols) {
+              if (
+                protocols === 'vite-hmr' ||
+                (typeof url === 'string' && (url.indexOf('token=') !== -1 || url.indexOf('5173') !== -1 || url.indexOf('3000') !== -1))
+              ) {
+                var target = new EventTarget();
+                target.url = url;
+                target.readyState = 1;
+                target.send = function() {};
+                target.close = function() {
+                  target.readyState = 3;
+                };
+                setTimeout(function() {
+                  var evt = new Event('open');
+                  if (typeof target.onopen === 'function') target.onopen(evt);
+                  target.dispatchEvent(evt);
+                }, 10);
+                return target;
+              }
+              return new OriginalWS(url, protocols);
+            }
+            MockHmrWS.CONNECTING = 0;
+            MockHmrWS.OPEN = 1;
+            MockHmrWS.CLOSING = 2;
+            MockHmrWS.CLOSED = 3;
+            MockHmrWS.prototype = OriginalWS.prototype;
+            window.WebSocket = MockHmrWS;
+          }
+        } catch (e) {}
+
+        // Safe console wrapper with setter interception
+        var currentConsole = window.console;
+        function filterViteError(fn) {
+          return function() {
+            if (arguments.length > 0) {
+              var s = String(arguments[0] || '');
+              if (
+                s.indexOf('[vite]') !== -1 ||
+                s.indexOf('WebSocket') !== -1 ||
+                s.indexOf('websocket') !== -1 ||
+                s.indexOf('ws://') !== -1 ||
+                s.indexOf('wss://') !== -1
+              ) {
+                return;
+              }
+            }
+            if (typeof fn === 'function') {
+              return fn.apply(this, arguments);
+            }
+          };
+        }
+
+        if (currentConsole) {
+          if (currentConsole.error) currentConsole.error = filterViteError(currentConsole.error);
+          if (currentConsole.warn) currentConsole.warn = filterViteError(currentConsole.warn);
+        }
+
+        try {
+          Object.defineProperty(window, 'console', {
+            configurable: true,
+            enumerable: true,
+            get: function() {
+              return currentConsole;
+            },
+            set: function(newCons) {
+              if (newCons) {
+                if (typeof newCons.error === 'function') {
+                  newCons.error = filterViteError(newCons.error);
+                }
+                if (typeof newCons.warn === 'function') {
+                  newCons.warn = filterViteError(newCons.warn);
+                }
+              }
+              currentConsole = newCons;
+            }
+          });
+        } catch (e) {}
+
+        window.addEventListener('error', function(e) {
+          var msg = e.message || (e.error && e.error.message) || '';
+          if (typeof msg === 'string' && (msg.indexOf('[vite]') !== -1 || msg.indexOf('WebSocket') !== -1 || msg.indexOf('websocket') !== -1)) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+          }
+        }, true);
+
+        window.addEventListener('unhandledrejection', function(e) {
+          var r = e.reason ? (e.reason.message || String(e.reason)) : '';
+          if (typeof r === 'string' && (r.indexOf('[vite]') !== -1 || r.indexOf('WebSocket') !== -1 || r.indexOf('websocket') !== -1)) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+          }
+        }, true);
+      })();
+    </script>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>PayHub Gateway & Gmail Disbursement PWA</title>

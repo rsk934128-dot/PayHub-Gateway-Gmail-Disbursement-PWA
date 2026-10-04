@@ -10,6 +10,7 @@ import {
   Shield,
   Key,
   HelpCircle,
+  FileText,
 } from 'lucide-react';
 import { executeBkashDisbursement, validateBangladeshiMsisdn } from '../services/bkash/bkash.service';
 import { executeNagadDisbursement, generateNagadSignature, encryptNagadPayload, NAGAD_DEFAULT_CREDENTIALS } from '../services/nagad/nagad.service';
@@ -122,9 +123,10 @@ export const DisbursementForm: React.FC<Props> = ({
           status: 'COMPLETED',
           createdAt: res.completedTime,
           idempotencyKey,
+          note: note.trim() || undefined,
           gmailReceiptSent: false,
           gmailRecipient: customerEmail,
-          metadata: { note, paymentID: res.paymentID },
+          metadata: { note: note.trim() || undefined, paymentID: res.paymentID },
         };
       } else if (activeGateway === 'NAGAD') {
         const res = await executeNagadDisbursement({
@@ -148,9 +150,11 @@ export const DisbursementForm: React.FC<Props> = ({
           status: 'COMPLETED',
           createdAt: new Date().toISOString(),
           idempotencyKey,
+          note: note.trim() || undefined,
           gmailReceiptSent: false,
           gmailRecipient: customerEmail,
           metadata: {
+            note: note.trim() || undefined,
             signature: res.signature,
             issuerRef: res.response.issuerPaymentRefNo,
           },
@@ -182,9 +186,11 @@ export const DisbursementForm: React.FC<Props> = ({
           status: 'COMPLETED',
           createdAt: new Date(stripeRes.created * 1000).toISOString(),
           idempotencyKey,
+          note: note.trim() || undefined,
           gmailReceiptSent: false,
           gmailRecipient: customerEmail,
           metadata: {
+            note: note.trim() || undefined,
             cardBrand: stripeRes.cardBrand,
             last4: stripeRes.last4,
             receiptUrl: stripeRes.receiptUrl,
@@ -208,6 +214,7 @@ export const DisbursementForm: React.FC<Props> = ({
           type: createdTrx.type,
           completedAt: createdTrx.createdAt,
           label: getMappedLabelForGateway(createdTrx.gateway, createdTrx.type),
+          note: createdTrx.note,
         });
       }
 
@@ -486,6 +493,30 @@ export const DisbursementForm: React.FC<Props> = ({
               </div>
             </>
           )}
+
+          {/* Note / Memo Field (Optional) */}
+          <div className="md:col-span-2">
+            <label className="block text-xs font-semibold text-slate-300 mb-2 flex items-center justify-between">
+              <span className="flex items-center gap-1.5">
+                <FileText className="w-3.5 h-3.5 text-indigo-400" />
+                {lang === 'bn' ? 'নোট / মেমো (ঐচ্ছিক)' : 'Note / Memo (Optional)'}
+              </span>
+              <span className="text-[10px] text-slate-400 font-normal">
+                {lang === 'bn' ? 'লেনদেনের বিবরণ ও অডিট ট্রেইল' : 'Disbursement reference & purpose'}
+              </span>
+            </label>
+            <input
+              type="text"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder={
+                lang === 'bn'
+                  ? 'যেমন: রিফান্ড #১০৪২, এফিলিয়েট কমিশন, বেতন...'
+                  : 'e.g., Refund for Order #1042, Affiliate commission, Vendor payment...'
+              }
+              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
+            />
+          </div>
 
           {/* Email Notification & Receipt Dispatch */}
           <div className="md:col-span-2 p-4 rounded-xl bg-slate-950/60 border border-slate-800 space-y-3">

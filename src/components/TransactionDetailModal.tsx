@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, CheckCircle2, Clock, AlertCircle, Copy, Mail, ExternalLink, ShieldCheck } from 'lucide-react';
+import { X, CheckCircle2, Clock, AlertCircle, Copy, Mail, ExternalLink, ShieldCheck, FileText } from 'lucide-react';
 import { Transaction } from '../types';
 import { buildReceiptHtml } from '../services/gmail/gmail.service';
 import { getMappedLabelForGateway } from '../services/gmail/labelManager.service';
@@ -38,6 +38,7 @@ export const TransactionDetailModal: React.FC<Props> = ({
     type: transaction.type,
     completedAt: transaction.createdAt,
     label: getMappedLabelForGateway(transaction.gateway, transaction.type),
+    note: transaction.note || transaction.metadata?.note,
   });
 
   return (
@@ -123,6 +124,24 @@ export const TransactionDetailModal: React.FC<Props> = ({
               </div>
             </div>
           </div>
+
+          {/* Note / Memo Display */}
+          {(transaction.note || transaction.metadata?.note) && (
+            <div className="p-4 rounded-xl bg-slate-950/70 border border-indigo-500/30 shadow-md flex items-start gap-3">
+              <div className="p-2 rounded-lg bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 shrink-0 mt-0.5">
+                <FileText className="w-4 h-4" />
+              </div>
+              <div className="space-y-1 flex-1 min-w-0">
+                <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider flex items-center justify-between">
+                  <span>{lang === 'bn' ? 'নোট / মেমো' : 'Note / Memo'}</span>
+                  <span className="text-[10px] text-indigo-400 bg-indigo-950/60 px-2 py-0.5 rounded font-mono">Reference</span>
+                </div>
+                <p className="text-sm text-slate-200 font-medium break-words leading-relaxed">
+                  {transaction.note || transaction.metadata?.note}
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* Details Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">

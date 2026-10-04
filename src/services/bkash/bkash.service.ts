@@ -26,25 +26,40 @@ export interface BkashPayoutResponse {
 // In-memory token cache
 let cachedToken: { token: string; expiresAt: number } | null = null;
 
+export const BKASH_LIVE_BASE_URL = 'https://tokenized.pay.bka.sh/v1.2.0-beta';
+export const BKASH_SANDBOX_BASE_URL = 'https://tokenized.sandbox.bka.sh/v1.2.0-beta';
+
+// Detect whether environment is live or sandbox
+const isLiveMode =
+  (typeof process !== 'undefined' && process.env?.BKASH_ENV === 'live') ||
+  (typeof import.meta !== 'undefined' && import.meta.env?.VITE_BKASH_ENV === 'live');
+
 export const BKASH_DEFAULT_CREDENTIALS = {
-  appKey: 'bkash_app_key_sandbox_9921',
-  appSecret: 'bkash_sec_38fa099b24',
-  username: 'merchant_live_user',
-  password: '●●●●●●●●',
-  baseUrl: 'https://checkout.pay.bka.sh/v1.2.0-beta',
+  env: isLiveMode ? 'live' : 'sandbox',
+  appKey: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_BKASH_APP_KEY) || 'bkash_app_key_sandbox_9921',
+  appSecret: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_BKASH_APP_SECRET) || 'bkash_sec_38fa099b24',
+  username: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_BKASH_USERNAME) || 'merchant_live_user',
+  password: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_BKASH_PASSWORD) || '●●●●●●●●',
+  baseUrl: isLiveMode ? BKASH_LIVE_BASE_URL : BKASH_SANDBOX_BASE_URL,
 };
 
 export function validateBangladeshiMsisdn(msisdn: string): boolean {
-  // Cleans spaces or dashes
-  const clean = msisdn.replace(/[\s-+]/g, '');
-  // Accepts 01[3-9]XXXXXXXX (11 digits) or 8801[3-9]XXXXXXXX (13 digits)
-  return /^(880)?1[3-9]\d{8}$/.test(clean);
+  if (!msisdn) return false;
+  // Cleans spaces, dashes, parentheses or plus
+  const clean = msisdn.replace(/[\s\-+()]/g, '');
+  // Accepts standard 11-digit (013-019XXXXXXXX), international 13-digit (88013-88019XXXXXXXX),
+  // or 10-digit without leading 0 (13-19XXXXXXXX)
+  return /^(?:8801|01)[3-9]\d{8}$/.test(clean) || /^1[3-9]\d{8}$/.test(clean);
 }
 
 export function formatBangladeshiMsisdn(msisdn: string): string {
-  const clean = msisdn.replace(/[\s-+]/g, '');
+  if (!msisdn) return '';
+  const clean = msisdn.replace(/[\s\-+()]/g, '');
   if (clean.startsWith('880')) {
     return '0' + clean.slice(3);
+  }
+  if (clean.length === 10 && clean.startsWith('1')) {
+    return '0' + clean;
   }
   return clean;
 }

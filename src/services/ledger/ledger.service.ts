@@ -149,44 +149,60 @@ export function recordIdempotencyKey(key: string, trxId: string): void {
 
 export function exportTransactionsToCsv(transactions: Transaction[]): void {
   const headers = [
-    'Trx ID',
-    'Invoice No',
+    'Transaction ID',
+    'Invoice Number',
     'Gateway',
-    'Type',
-    'Amount',
+    'Transaction Type',
+    'Gross Amount',
     'Currency',
     'Status',
-    'Receiver',
-    'Sender',
-    'Date',
-    'Gmail Sent',
+    'Receiver / Customer',
+    'Sender / Merchant',
+    'Gmail Recipient Email',
+    'Gmail Receipt Sent',
+    'Mapped Gmail Label',
+    'Idempotency Key',
+    'Created At (UTC)',
+    'Completed At (UTC)',
+    'Notes / Reference',
   ];
 
+  const escapeCsv = (val: any): string => {
+    if (val === null || val === undefined) return '""';
+    const str = String(val).replace(/"/g, '""');
+    return `"${str}"`;
+  };
+
   const rows = transactions.map((t) => [
-    t.trxId,
-    t.invoiceNo,
-    t.gateway,
-    t.type,
-    t.amount,
-    t.currency,
-    t.status,
-    `"${t.receiver}"`,
-    `"${t.sender}"`,
-    new Date(t.createdAt).toISOString(),
-    t.gmailReceiptSent ? 'YES' : 'NO',
+    escapeCsv(t.trxId),
+    escapeCsv(t.invoiceNo),
+    escapeCsv(t.gateway),
+    escapeCsv(t.type),
+    escapeCsv(t.amount.toFixed(2)),
+    escapeCsv(t.currency),
+    escapeCsv(t.status),
+    escapeCsv(t.receiver),
+    escapeCsv(t.sender),
+    escapeCsv(t.gmailRecipient || ''),
+    escapeCsv(t.gmailReceiptSent ? 'YES' : 'NO'),
+    escapeCsv(t.metadata?.disbursementLabel || ''),
+    escapeCsv(t.idempotencyKey || ''),
+    escapeCsv(t.createdAt ? new Date(t.createdAt).toISOString() : ''),
+    escapeCsv(t.metadata?.completedAt ? new Date(t.metadata.completedAt).toISOString() : new Date(t.createdAt).toISOString()),
+    escapeCsv(t.note || t.metadata?.note || t.metadata?.description || ''),
   ]);
 
-  const csvContent =
-    'data:text/csv;charset=utf-8,' +
-    [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
-
-  const encodedUri = encodeURI(csvContent);
+  const csvContent = '\uFEFF' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\r\n');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
-  link.setAttribute('href', encodedUri);
-  link.setAttribute('download', `payhub_ledger_${new Date().toISOString().slice(0, 10)}.csv`);
+  link.setAttribute('href', url);
+  const dateStr = new Date().toISOString().slice(0, 10);
+  link.setAttribute('download', `payhub_accounting_ledger_${dateStr}.csv`);
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 }
 
 export function exportTransactionsToJson(transactions: Transaction[]): void {

@@ -176,6 +176,11 @@ export function buildReceiptHtml(params: GmailReceiptRequest, userSenderEmail?: 
             <td style="padding:8px 0;color:#94a3b8;">Execution Date (সময়):</td>
             <td style="padding:8px 0;text-align:right;color:#cbd5e1;">${new Date(params.completedAt).toLocaleString()}</td>
           </tr>
+          ${params.note ? `
+          <tr>
+            <td style="padding:8px 0;color:#94a3b8;">Note / Memo (নোট):</td>
+            <td style="padding:8px 0;text-align:right;color:#38bdf8;font-weight:500;">${params.note}</td>
+          </tr>` : ''}
           <tr>
             <td style="padding:8px 0;color:#94a3b8;">Automated Mailer:</td>
             <td style="padding:8px 0;text-align:right;color:#cbd5e1;">Gmail API Hub (${userSenderEmail || 'PayHub Gateway'})</td>

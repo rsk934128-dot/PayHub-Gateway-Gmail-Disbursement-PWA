@@ -12,6 +12,7 @@ import {
   CheckCircle2,
   AlertCircle,
   ExternalLink,
+  Bot,
 } from 'lucide-react';
 import { User } from 'firebase/auth';
 import { initAuth, googleSignIn, logoutGoogle, getAccessToken } from './services/gmail/auth';
@@ -22,6 +23,7 @@ import { getMappedLabelForGateway } from './services/gmail/labelManager.service'
 import { PWAInstallButton } from './components/PWAInstallButton';
 import { OfflineIndicator } from './hooks/useOnlineStatus';
 import { DisbursementForm } from './components/DisbursementForm';
+import { AiAgentChat } from './components/AiAgentChat';
 import { TransactionLedger } from './components/TransactionLedger';
 import { GmailHub } from './components/GmailHub';
 import { ApiSandbox } from './components/ApiSandbox';
@@ -29,7 +31,7 @@ import { SecurityCryptoView } from './components/SecurityCryptoView';
 import { GmailConfirmModal } from './components/GmailConfirmModal';
 import { TransactionDetailModal } from './components/TransactionDetailModal';
 
-type NavTab = 'disbursement' | 'ledger' | 'gmail' | 'sandbox' | 'security';
+type NavTab = 'disbursement' | 'agent' | 'ledger' | 'gmail' | 'sandbox' | 'security';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<NavTab>('disbursement');
@@ -219,6 +221,21 @@ export default function App() {
             </button>
 
             <button
+              onClick={() => setActiveTab('agent')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition cursor-pointer relative ${
+                activeTab === 'agent'
+                  ? 'bg-gradient-to-r from-pink-600 to-indigo-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-pink-300'
+              }`}
+            >
+              <Bot className="w-3.5 h-3.5 text-pink-400" />
+              <span>{lang === 'bn' ? 'এআই এজেন্ট' : 'AI Agent'}</span>
+              <span className="text-[9px] bg-pink-500/20 text-pink-300 border border-pink-500/30 px-1 py-0.2 rounded font-mono">
+                bKash
+              </span>
+            </button>
+
+            <button
               onClick={() => setActiveTab('ledger')}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition cursor-pointer ${
                 activeTab === 'ledger'
@@ -326,6 +343,15 @@ export default function App() {
             <span>Payout</span>
           </button>
           <button
+            onClick={() => setActiveTab('agent')}
+            className={`flex flex-col items-center gap-1 ${
+              activeTab === 'agent' ? 'text-pink-400 font-bold' : 'text-slate-400'
+            }`}
+          >
+            <Bot className="w-4 h-4" />
+            <span>AI Agent</span>
+          </button>
+          <button
             onClick={() => setActiveTab('ledger')}
             className={`flex flex-col items-center gap-1 ${
               activeTab === 'ledger' ? 'text-indigo-400 font-bold' : 'text-slate-400'
@@ -373,6 +399,14 @@ export default function App() {
             onRequestGmailReceipt={handleRequestSendReceipt}
             userEmail={user?.email || undefined}
             isGmailConnected={!!accessToken}
+            lang={lang}
+          />
+        )}
+
+        {activeTab === 'agent' && (
+          <AiAgentChat
+            onTransactionCreated={handleTransactionCreated}
+            onNavigateToLedger={() => setActiveTab('ledger')}
             lang={lang}
           />
         )}

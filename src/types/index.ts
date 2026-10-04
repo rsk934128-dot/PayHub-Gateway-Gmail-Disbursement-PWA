@@ -17,6 +17,7 @@ export interface Transaction {
   status: TransactionStatus;
   createdAt: string;
   idempotencyKey: string;
+  note?: string;
   gmailReceiptSent: boolean;
   gmailMessageId?: string;
   gmailRecipient?: string;
@@ -68,6 +69,7 @@ export interface GmailReceiptRequest {
   type: TransactionType;
   completedAt: string;
   label?: string; // e.g. "Payments/Disbursed"
+  note?: string;
 }
 
 export interface GatewayConfig {

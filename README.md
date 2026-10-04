@@ -13,7 +13,7 @@
 PayHub unites **Stripe**, **bKash B2C Direct Payout**, and **Nagad Cryptographic Disbursement** into a unified dashboard with transaction ledgers, analytics, client-side cryptographic security (RSA-OAEP & HMAC-SHA256), and dynamic Gmail label tagging.
 
 <p align="center">
-  <img src="./src/assets/images/payhub_hero_banner_1790996262069.jpg" alt="PayHub Gateway & Gmail Disbursement Dashboard" width="100%" style="border-radius: 12px; box-shadow: 0 8px 30px rgba(0,0,0,0.5);" />
+  <img src="./readme-dashboard.png" alt="PayHub Gateway & Payment Hub Dashboard" width="100%" style="border-radius: 12px; box-shadow: 0 8px 30px rgba(0,0,0,0.5);" />
   <br />
   <em>✨ PayHub Enterprise Fintech Dashboard — Multi-Gateway Payouts & Automated Gmail Receipts</em>
 </p>
@@ -69,6 +69,13 @@ PayHub solves this by providing:
 * **Idempotency Protection**: Every transaction includes an idempotency key preventing duplicate billing.
 
 ### 2. bKash B2C Direct Disbursement
+
+<p align="center">
+  <img src="./readme-flow.png" alt="B2C Disbursement Flow Diagram" width="100%" style="border-radius: 12px; box-shadow: 0 8px 30px rgba(0,0,0,0.5);" />
+  <br />
+  <em>💸 High-Speed B2C Disbursement Flow — Enterprise Payout to Mobile Financial Wallets</em>
+</p>
+
 * **Mobile Number Validation**: Validates Bangladeshi MSISDN formats (`01[3-9]XXXXXXXX` or `8801[3-9]XXXXXXXX`).
 * **Tokenized Grant Flow**: Implements `getBkashToken` with client-side caching and refresh cycle.
 * **Disbursement Execution**: Generates unique `paymentID`, `trxID`, merchant invoice references, and timestamped audit logs.
@@ -97,6 +104,8 @@ PayHub solves this by providing:
 * **Branded HTML Receipts**: Clean, mobile-responsive email receipts with invoice numbers, gateway badges, breakdown tables, and audit timestamps.
 
 ### 5. Real-Time Transaction Ledger & Audit Trail
+* **Recharts 30-Day Disbursement Analytics**: Interactive timeline chart visualizing daily payout amounts per gateway (bKash, Nagad, Stripe) over the last 30 calendar days, with Area/Bar mode toggles, gateway isolation tabs, and continuous zero-fill timelines.
+* **60-Second Auto-Refresh & Background Polling**: Automatic service layer polling every 60 seconds with live countdown timer (`60s -> 0s`), toggle switch, pulsing indicator, and multi-tab `storage` event synchronization.
 * **Interactive Statistics**: Live KPI cards for total volume, total transactions, disbursement ratio, and receipt delivery rates.
 * **Advanced Filtering & Search**: Instant filtering by gateway (`All`, `Stripe`, `bKash`, `Nagad`), transaction type (`Disbursement`, `Payment Received`), and status (`Completed`, `Pending`, `Failed`).
 * **Exporting Capabilities**:
@@ -114,7 +123,7 @@ PayHub solves this by providing:
 ## 🔐 Security & Cryptography
 
 <p align="center">
-  <img src="./src/assets/images/crypto_security_graphic_1790996290045.jpg" alt="Cryptographic Security Architecture with RSA-OAEP & HMAC" width="100%" style="border-radius: 12px; box-shadow: 0 8px 30px rgba(0,0,0,0.5);" />
+  <img src="./readme-security.png" alt="Cryptographic Security Architecture with RSA-OAEP & HMAC" width="100%" style="border-radius: 12px; box-shadow: 0 8px 30px rgba(0,0,0,0.5);" />
   <br />
   <em>🔒 Enterprise Security Architecture — RSA-OAEP 2048-bit Public Key Encryption & HMAC-SHA256 Integrity</em>
 </p>

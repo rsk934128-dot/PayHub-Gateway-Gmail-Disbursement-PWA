@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   Search,
   Download,
@@ -13,6 +13,8 @@ import {
   ArrowUpRight,
   ArrowDownLeft,
   RefreshCw,
+  Check,
+  FileText,
 } from 'lucide-react';
 import { Transaction, PaymentGateway, TransactionStatus } from '../types';
 import {
@@ -20,6 +22,7 @@ import {
   exportTransactionsToJson,
   computeLedgerStats,
 } from '../services/ledger/ledger.service';
+import { DisbursementChart } from './DisbursementChart';
 
 interface Props {
   transactions: Transaction[];
@@ -39,6 +42,62 @@ export const TransactionLedger: React.FC<Props> = ({
   const [search, setSearch] = useState('');
   const [gatewayFilter, setGatewayFilter] = useState<string>('ALL');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
+  const [isExportingCsv, setIsExportingCsv] = useState(false);
+
+  // Background 60-Second Auto-Refresh & Polling Service
+  const [isAutoRefreshEnabled, setIsAutoRefreshEnabled] = useState(true);
+  const [secondsUntilNextPoll, setSecondsUntilNextPoll] = useState(60);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date>(() => new Date());
+
+  const executeRefresh = useCallback(() => {
+    setIsRefreshing(true);
+    onRefresh();
+    setLastRefreshedAt(new Date());
+    setSecondsUntilNextPoll(60);
+    setTimeout(() => {
+      setIsRefreshing(false);
+    }, 650);
+  }, [onRefresh]);
+
+  // 60-second polling interval timer
+  useEffect(() => {
+    if (!isAutoRefreshEnabled) return;
+
+    const timer = setInterval(() => {
+      setSecondsUntilNextPoll((prev) => {
+        if (prev <= 1) {
+          executeRefresh();
+          return 60;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [isAutoRefreshEnabled, executeRefresh]);
+
+  // Cross-tab synchronization via local storage events
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'payhub_ledger_transactions_v2') {
+        executeRefresh();
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, [executeRefresh]);
+
+  const handleExportCsv = () => {
+    setIsExportingCsv(true);
+    try {
+      exportTransactionsToCsv(filteredTransactions);
+    } finally {
+      setTimeout(() => {
+        setIsExportingCsv(false);
+      }, 1800);
+    }
+  };
 
   const stats = useMemo(() => computeLedgerStats(transactions), [transactions]);
 
@@ -56,7 +115,8 @@ export const TransactionLedger: React.FC<Props> = ({
         const matchRec = tx.receiver.toLowerCase().includes(q);
         const matchSender = tx.sender.toLowerCase().includes(q);
         const matchEmail = tx.gmailRecipient?.toLowerCase().includes(q) || false;
-        if (!matchTrx && !matchInv && !matchRec && !matchSender && !matchEmail) return false;
+        const matchNote = (tx.note || tx.metadata?.note || '').toLowerCase().includes(q);
+        if (!matchTrx && !matchInv && !matchRec && !matchSender && !matchEmail && !matchNote) return false;
       }
       return true;
     });
@@ -136,6 +196,9 @@ export const TransactionLedger: React.FC<Props> = ({
         </div>
       </div>
 
+      {/* 30-Day Gateway Disbursement Trends Chart (Recharts) */}
+      <DisbursementChart transactions={transactions} lang={lang} />
+
       {/* Filter and Search Bar */}
       <div className="bg-slate-900/80 p-4 rounded-2xl border border-slate-800 flex flex-col md:flex-row items-center justify-between gap-4">
         {/* Search */}
@@ -180,28 +243,111 @@ export const TransactionLedger: React.FC<Props> = ({
             <option value="FAILED">Failed</option>
           </select>
 
-          {/* Refresh */}
+          {/* Auto-Refresh Toggle Pill */}
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-700/80 text-xs">
+            <button
+              type="button"
+              onClick={() => setIsAutoRefreshEnabled(!isAutoRefreshEnabled)}
+              className="flex items-center gap-1.5 cursor-pointer text-slate-300 hover:text-white transition"
+              title={
+                isAutoRefreshEnabled
+                  ? (lang === 'bn' ? 'অটো-রিফ্রেশ সক্রিয়: প্রতি ৬০ সেকেন্ডে নতুন ডেটা লোড হবে' : 'Auto-refresh active: fetching fresh ledger data every 60s')
+                  : (lang === 'bn' ? 'অটো-রিফ্রেশ বন্ধ: চালু করতে ক্লিক করুন' : 'Auto-refresh paused: click to enable background polling')
+              }
+            >
+              <span className="relative flex h-2 w-2">
+                {isAutoRefreshEnabled && (
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                )}
+                <span
+                  className={`relative inline-flex rounded-full h-2 w-2 ${
+                    isAutoRefreshEnabled ? 'bg-emerald-500' : 'bg-slate-600'
+                  }`}
+                />
+              </span>
+              <span className="font-medium text-slate-300 hidden sm:inline">
+                {lang === 'bn' ? 'অটো-রিফ্রেশ' : 'Auto-Sync'}
+              </span>
+            </button>
+
+            {isAutoRefreshEnabled ? (
+              <span
+                className="font-mono text-[10px] text-emerald-400 bg-emerald-950/80 px-1.5 py-0.5 rounded border border-emerald-800/60"
+                title={lang === 'bn' ? `পরবর্তী রিফ্রেশ ${secondsUntilNextPoll} সেকেন্ডে` : `Next sync in ${secondsUntilNextPoll}s`}
+              >
+                {secondsUntilNextPoll}s
+              </span>
+            ) : (
+              <span className="font-mono text-[10px] text-slate-500 bg-slate-900 px-1.5 py-0.5 rounded">
+                OFF
+              </span>
+            )}
+
+            {/* Toggle Switch */}
+            <button
+              type="button"
+              onClick={() => setIsAutoRefreshEnabled(!isAutoRefreshEnabled)}
+              className={`relative inline-flex h-4 w-7 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                isAutoRefreshEnabled ? 'bg-emerald-600' : 'bg-slate-700'
+              }`}
+              role="switch"
+              aria-checked={isAutoRefreshEnabled}
+              title={isAutoRefreshEnabled ? 'Toggle auto-refresh off' : 'Toggle auto-refresh on'}
+            >
+              <span
+                aria-hidden="true"
+                className={`pointer-events-none inline-block h-3 w-3 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                  isAutoRefreshEnabled ? 'translate-x-3' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </div>
+
+          {/* Manual Refresh */}
           <button
-            onClick={onRefresh}
+            onClick={executeRefresh}
             className="p-2 rounded-xl bg-slate-950 border border-slate-700 text-slate-400 hover:text-white transition cursor-pointer"
-            title="Refresh Ledger"
+            title={
+              lang === 'bn'
+                ? `এখনই রিফ্রেশ করুন (সর্বশেষ: ${lastRefreshedAt.toLocaleTimeString()})`
+                : `Refresh Ledger Now (Last sync: ${lastRefreshedAt.toLocaleTimeString()})`
+            }
           >
-            <RefreshCw className="w-3.5 h-3.5" />
+            <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-indigo-400' : ''}`} />
           </button>
 
-          {/* Export CSV */}
+          {/* Export to CSV (Accounting Ledger) */}
           <button
-            onClick={() => exportTransactionsToCsv(filteredTransactions)}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs font-medium text-slate-200 hover:bg-slate-800 transition cursor-pointer"
+            onClick={handleExportCsv}
+            disabled={filteredTransactions.length === 0}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl border text-xs font-semibold transition shadow-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+              isExportingCsv
+                ? 'bg-emerald-600 border-emerald-500 text-white'
+                : 'bg-emerald-950/60 hover:bg-emerald-900/60 border-emerald-700/60 text-emerald-300 hover:text-emerald-200'
+            }`}
+            title="Download current transaction data as CSV for accounting purposes"
           >
-            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
-            <span>CSV</span>
+            {isExportingCsv ? (
+              <>
+                <Check className="w-3.5 h-3.5 text-white" />
+                <span>{lang === 'bn' ? 'এক্সপোর্ট সম্পন্ন!' : 'Exported to CSV!'}</span>
+              </>
+            ) : (
+              <>
+                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
+                <span>{lang === 'bn' ? 'CSV এক্সপোর্ট' : 'Export to CSV'}</span>
+                <span className="text-[10px] bg-emerald-900/80 text-emerald-200 px-1.5 py-0.5 rounded-full border border-emerald-700/50 font-mono">
+                  {filteredTransactions.length}
+                </span>
+              </>
+            )}
           </button>
 
           {/* Export JSON */}
           <button
             onClick={() => exportTransactionsToJson(filteredTransactions)}
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs font-medium text-slate-200 hover:bg-slate-800 transition cursor-pointer"
+            title="Download transaction data as JSON"
           >
             <FileCode className="w-3.5 h-3.5 text-cyan-400" />
             <span>JSON</span>
@@ -238,6 +384,15 @@ export const TransactionLedger: React.FC<Props> = ({
                     <td className="py-3.5 px-4">
                       <div className="font-semibold text-white">{tx.invoiceNo}</div>
                       <div className="font-mono text-[11px] text-cyan-400">{tx.trxId}</div>
+                      {(tx.note || tx.metadata?.note) && (
+                        <div
+                          className="text-[10px] text-slate-400 italic truncate max-w-[170px] flex items-center gap-1 mt-0.5"
+                          title={tx.note || tx.metadata?.note}
+                        >
+                          <FileText className="w-2.5 h-2.5 text-indigo-400 shrink-0" />
+                          <span className="truncate">{tx.note || tx.metadata?.note}</span>
+                        </div>
+                      )}
                     </td>
                     <td className="py-3.5 px-4">
                       <span
@@ -311,6 +466,38 @@ export const TransactionLedger: React.FC<Props> = ({
               )}
             </tbody>
           </table>
+        </div>
+
+        {/* Ledger Accounting Footer Summary */}
+        <div className="px-4 py-3 bg-slate-950/90 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-2.5 text-xs text-slate-400">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-500" />
+            <span>
+              {lang === 'bn'
+                ? `মোট ${transactions.length}টির মধ্যে ${filteredTransactions.length}টি লেনদেন প্রদর্শিত হচ্ছে`
+                : `Showing ${filteredTransactions.length} of ${transactions.length} accounting records`}
+            </span>
+            <span className="text-slate-600 hidden sm:inline">&bull;</span>
+            <span className="text-[11px] text-slate-500 flex items-center gap-1 font-mono">
+              <Clock className="w-3 h-3 text-slate-400" />
+              <span>{lang === 'bn' ? 'সিঙ্ক:' : 'Synced:'} {lastRefreshedAt.toLocaleTimeString()}</span>
+            </span>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <span className="text-[11px] text-slate-500 hidden md:inline">
+              UTF-8 BOM Encoded &bull; Excel &amp; Accounting Ready
+            </span>
+            <button
+              onClick={handleExportCsv}
+              disabled={filteredTransactions.length === 0}
+              className="flex items-center gap-1.5 text-emerald-400 hover:text-emerald-300 text-xs font-semibold transition cursor-pointer disabled:opacity-40"
+              title="Download accounting CSV report"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>{lang === 'bn' ? 'CSV ফাইল ডাউনলোড করুন' : 'Export to CSV'}</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>
