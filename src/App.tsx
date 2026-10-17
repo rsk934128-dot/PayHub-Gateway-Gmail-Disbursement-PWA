@@ -39,6 +39,7 @@ import { ApiSandbox } from './components/ApiSandbox';
 import { SecurityCryptoView } from './components/SecurityCryptoView';
 import { GmailConfirmModal } from './components/GmailConfirmModal';
 import { TransactionDetailModal } from './components/TransactionDetailModal';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 
 type NavTab = 'dashboard' | 'disbursement' | 'agent' | 'ledger' | 'webhooks' | 'audit' | 'gmail' | 'sandbox' | 'security';
 
@@ -776,6 +777,7 @@ export default function App() {
           </div>
         </div>
       </footer>
+      <SpeedInsights />
     </div>
   );
 }
