@@ -1,8 +1,9 @@
-import React from 'react';
-import { X, CheckCircle2, Clock, AlertCircle, Copy, Mail, ExternalLink, ShieldCheck, FileText } from 'lucide-react';
+import React, { useState } from 'react';
+import { X, CheckCircle2, Clock, AlertCircle, Copy, Mail, ExternalLink, ShieldCheck, FileText, QrCode } from 'lucide-react';
 import { Transaction } from '../types';
 import { buildReceiptHtml } from '../services/gmail/gmail.service';
 import { getMappedLabelForGateway } from '../services/gmail/labelManager.service';
+import { TransactionQrModal } from './TransactionQrModal';
 
 interface Props {
   transaction: Transaction | null;
@@ -17,8 +18,9 @@ export const TransactionDetailModal: React.FC<Props> = ({
   onRequestSendReceipt,
   lang = 'en',
 }) => {
-  const [copied, setCopied] = React.useState(false);
-  const [showHtmlPreview, setShowHtmlPreview] = React.useState(false);
+  const [copied, setCopied] = useState(false);
+  const [showHtmlPreview, setShowHtmlPreview] = useState(false);
+  const [isQrModalOpen, setIsQrModalOpen] = useState(false);
 
   if (!transaction) return null;
 
@@ -125,6 +127,32 @@ export const TransactionDetailModal: React.FC<Props> = ({
             </div>
           </div>
 
+          {/* Failure Alert Banner for Failed Transactions */}
+          {transaction.status === 'FAILED' && (
+            <div className="p-4 rounded-xl bg-rose-950/60 border border-rose-800/80 text-xs space-y-2">
+              <div className="flex items-center gap-2 text-rose-300 font-bold">
+                <AlertCircle className="w-4 h-4 text-rose-400" />
+                <span>
+                  {lang === 'bn' ? 'ব্যর্থ লেনদেন অডিট লগ' : 'Transaction Interruption Diagnostic'}
+                </span>
+                {transaction.metadata?.failureType && (
+                  <span className="font-mono text-[10px] bg-rose-900/80 px-2 py-0.5 rounded text-rose-200 border border-rose-700/60 ml-auto">
+                    {transaction.metadata.failureType}
+                  </span>
+                )}
+              </div>
+              <p className="text-slate-300 leading-relaxed">
+                {transaction.metadata?.failureReason ||
+                  (lang === 'bn'
+                    ? 'নেটওয়ার্ক সংযোগ বিঘ্নিত হওয়ায় গেটওয়ে রেসপন্স টাইমআউট হয়েছে।'
+                    : 'The payment cluster timed out or connection was interrupted. Idempotency key preserved.')}
+              </p>
+              <div className="text-[11px] text-rose-400/90 font-mono pt-1 border-t border-rose-900/60">
+                Idempotency Hash: {transaction.idempotencyKey || 'Protected'}
+              </div>
+            </div>
+          )}
+
           {/* Note / Memo Display */}
           {(transaction.note || transaction.metadata?.note) && (
             <div className="p-4 rounded-xl bg-slate-950/70 border border-indigo-500/30 shadow-md flex items-start gap-3">
@@ -225,7 +253,15 @@ export const TransactionDetailModal: React.FC<Props> = ({
             <span>Audit Trail Verified</span>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIsQrModalOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-indigo-300 hover:text-white transition cursor-pointer border border-indigo-500/30"
+              title="Show mobile scannable QR receipt"
+            >
+              <QrCode className="w-3.5 h-3.5 text-indigo-400" />
+              <span>{lang === 'bn' ? 'কিউআর কোড' : 'QR Receipt'}</span>
+            </button>
             <button
               onClick={() => onRequestSendReceipt(transaction)}
               className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition cursor-pointer shadow-md"
@@ -242,6 +278,14 @@ export const TransactionDetailModal: React.FC<Props> = ({
           </div>
         </div>
       </div>
+
+      {/* Scannable Mobile QR Code Receipt Modal */}
+      <TransactionQrModal
+        isOpen={isQrModalOpen}
+        onClose={() => setIsQrModalOpen(false)}
+        transaction={transaction}
+        lang={lang}
+      />
     </div>
   );
 };

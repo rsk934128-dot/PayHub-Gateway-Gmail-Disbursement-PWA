@@ -7,14 +7,14 @@
     height: 6px;
   }
   ::-webkit-scrollbar-track {
-    background: #0f172a;
+    background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: #334155;
+    background: #475569;
     border-radius: 9999px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: #475569;
+    background: #64748b;
   }
 }
 
@@ -60,3 +60,192 @@
   font-weight: 500;
 }
 
+/* ========================================================
+   VIBRANT FINTECH BRAND THEMING (bKash / Nagad / Stripe)
+   Eliminates all monochrome/black-and-white look in BOTH
+   Light Mode and Dark Mode!
+   ======================================================== */
+
+/* --- LIGHT MODE VIBRANCY --- */
+html.light,
+html:not(.dark),
+body.light-mode {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+  background-image: 
+    radial-gradient(circle at 10% 5%, rgba(244, 63, 94, 0.08) 0px, transparent 40%),
+    radial-gradient(circle at 90% 10%, rgba(249, 115, 22, 0.08) 0px, transparent 40%),
+    radial-gradient(circle at 50% 95%, rgba(99, 102, 241, 0.09) 0px, transparent 50%) !important;
+  background-attachment: fixed !important;
+}
+
+/* bKash Branded Card (Vibrant Magenta / Crimson) */
+html.light .brand-card-bkash,
+html:not(.dark) .brand-card-bkash,
+body.light-mode .brand-card-bkash {
+  background: linear-gradient(135deg, #fff1f2 0%, #ffe4e6 35%, #ffffff 100%) !important;
+  border: 1.5px solid #fecdd3 !important;
+  border-top: 3.5px solid #e11d48 !important;
+  box-shadow: 0 10px 25px -5px rgba(225, 29, 72, 0.14), 0 4px 6px -2px rgba(225, 29, 72, 0.06) !important;
+  color: #881337 !important;
+}
+
+/* Nagad Branded Card (Vibrant Saffron / Orange) */
+html.light .brand-card-nagad,
+html:not(.dark) .brand-card-nagad,
+body.light-mode .brand-card-nagad {
+  background: linear-gradient(135deg, #fff7ed 0%, #ffedd5 35%, #ffffff 100%) !important;
+  border: 1.5px solid #fed7aa !important;
+  border-top: 3.5px solid #f97316 !important;
+  box-shadow: 0 10px 25px -5px rgba(249, 115, 22, 0.14), 0 4px 6px -2px rgba(249, 115, 22, 0.06) !important;
+  color: #7c2d12 !important;
+}
+
+/* Stripe Branded Card (Royal Indigo / Blue) */
+html.light .brand-card-stripe,
+html:not(.dark) .brand-card-stripe,
+body.light-mode .brand-card-stripe {
+  background: linear-gradient(135deg, #eef2ff 0%, #e0e7ff 35%, #ffffff 100%) !important;
+  border: 1.5px solid #c7d2fe !important;
+  border-top: 3.5px solid #6366f1 !important;
+  box-shadow: 0 10px 25px -5px rgba(99, 102, 241, 0.14), 0 4px 6px -2px rgba(99, 102, 241, 0.06) !important;
+  color: #312e81 !important;
+}
+
+/* Multi-Gateway Enterprise Hub Header */
+html.light .brand-card-hub,
+html:not(.dark) .brand-card-hub,
+body.light-mode .brand-card-hub {
+  background: linear-gradient(135deg, #eff6ff 0%, #fdf2f8 35%, #fff7ed 70%, #ffffff 100%) !important;
+  border: 1.5px solid #cbd5e1 !important;
+  border-top: 3.5px solid #4f46e5 !important;
+  box-shadow: 0 10px 30px -5px rgba(99, 102, 241, 0.12) !important;
+  color: #0f172a !important;
+}
+
+/* Light mode panels & forms */
+html.light [class*="bg-slate-900"],
+html.light [class*="bg-slate-950"],
+html.light [class*="bg-slate-800"],
+html:not(.dark) [class*="bg-slate-900"],
+html:not(.dark) [class*="bg-slate-950"],
+html:not(.dark) [class*="bg-slate-800"],
+body.light-mode [class*="bg-slate-900"],
+body.light-mode [class*="bg-slate-950"],
+body.light-mode [class*="bg-slate-800"] {
+  background-color: #ffffff !important;
+  border-color: #e2e8f0 !important;
+  box-shadow: 0 4px 15px -2px rgba(15, 23, 42, 0.05);
+}
+
+/* In light mode, ensure titles inside white cards are clean dark navy */
+html.light h1, html.light h2, html.light h3, html.light h4,
+html:not(.dark) h1, html:not(.dark) h2, html:not(.dark) h3, html:not(.dark) h4 {
+  color: #0f172a;
+}
+
+/* Light mode inputs and tables */
+html.light input, html.light select, html.light textarea,
+html:not(.dark) input, html:not(.dark) select, html:not(.dark) textarea {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+html.light input:focus, html.light select:focus, html.light textarea:focus,
+html:not(.dark) input:focus, html:not(.dark) select:focus, html:not(.dark) textarea:focus {
+  border-color: #6366f1 !important;
+  outline: 2px solid rgba(99, 102, 241, 0.2) !important;
+}
+
+html.light table thead,
+html:not(.dark) table thead {
+  background: linear-gradient(180deg, #f1f5f9 0%, #e2e8f0 100%) !important;
+  color: #334155 !important;
+}
+
+html.light table tbody tr:hover,
+html:not(.dark) table tbody tr:hover {
+  background-color: #f8fafc !important;
+}
+
+/* Buttons with colors ALWAYS keep white text */
+button[class*="bg-indigo-"],
+button[class*="bg-rose-"],
+button[class*="bg-pink-"],
+button[class*="bg-orange-"],
+button[class*="bg-emerald-"],
+button[class*="bg-purple-"],
+button[class*="bg-blue-"],
+button[class*="bg-gradient-"],
+.bg-rose-600, .bg-orange-600, .bg-indigo-600, .bg-emerald-600 {
+  color: #ffffff !important;
+}
+
+button[class*="bg-indigo-"] *,
+button[class*="bg-rose-"] *,
+button[class*="bg-pink-"] *,
+button[class*="bg-orange-"] *,
+button[class*="bg-emerald-"] *,
+button[class*="bg-purple-"] *,
+button[class*="bg-gradient-"] * {
+  color: #ffffff !important;
+}
+
+/* --- DARK MODE VIBRANCY (Deep Glowing Cyber-Fintech) --- */
+html.dark,
+body.dark {
+  background-color: #070a13 !important;
+  color: #f1f5f9 !important;
+  background-image: 
+    radial-gradient(circle at 10% 5%, rgba(225, 29, 72, 0.15) 0px, transparent 40%),
+    radial-gradient(circle at 90% 10%, rgba(249, 115, 22, 0.13) 0px, transparent 40%),
+    radial-gradient(circle at 50% 95%, rgba(99, 102, 241, 0.18) 0px, transparent 50%) !important;
+  background-attachment: fixed !important;
+}
+
+/* Dark bKash Card */
+html.dark .brand-card-bkash {
+  background: linear-gradient(135deg, rgba(136, 19, 55, 0.35) 0%, rgba(15, 23, 42, 0.95) 100%) !important;
+  border: 1.5px solid rgba(244, 63, 94, 0.5) !important;
+  border-top: 3.5px solid #f43f5e !important;
+  box-shadow: 0 10px 25px -5px rgba(225, 29, 72, 0.3) !important;
+  color: #ffe4e6 !important;
+}
+
+/* Dark Nagad Card */
+html.dark .brand-card-nagad {
+  background: linear-gradient(135deg, rgba(124, 45, 18, 0.35) 0%, rgba(15, 23, 42, 0.95) 100%) !important;
+  border: 1.5px solid rgba(251, 146, 60, 0.5) !important;
+  border-top: 3.5px solid #fb923c !important;
+  box-shadow: 0 10px 25px -5px rgba(249, 115, 22, 0.3) !important;
+  color: #ffedd5 !important;
+}
+
+/* Dark Stripe Card */
+html.dark .brand-card-stripe {
+  background: linear-gradient(135deg, rgba(49, 46, 129, 0.4) 0%, rgba(15, 23, 42, 0.95) 100%) !important;
+  border: 1.5px solid rgba(129, 140, 248, 0.5) !important;
+  border-top: 3.5px solid #818cf8 !important;
+  box-shadow: 0 10px 25px -5px rgba(99, 102, 241, 0.3) !important;
+  color: #e0e7ff !important;
+}
+
+/* Dark Hub Card */
+html.dark .brand-card-hub {
+  background: linear-gradient(135deg, rgba(30, 27, 75, 0.5) 0%, rgba(76, 5, 25, 0.3) 45%, rgba(15, 23, 42, 0.95) 100%) !important;
+  border: 1.5px solid rgba(129, 140, 248, 0.4) !important;
+  border-top: 3.5px solid #818cf8 !important;
+  box-shadow: 0 10px 30px -5px rgba(99, 102, 241, 0.25) !important;
+}
+
+/* Dark panels */
+html.dark [class*="bg-slate-900"] {
+  background-color: rgba(15, 23, 42, 0.9) !important;
+  border-color: rgba(51, 65, 85, 0.6) !important;
+}
+
+html.dark [class*="bg-slate-950"] {
+  background-color: rgba(11, 16, 28, 0.95) !important;
+  border-color: rgba(51, 65, 85, 0.5) !important;
+}

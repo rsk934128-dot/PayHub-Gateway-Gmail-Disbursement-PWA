@@ -11,6 +11,8 @@ import {
   Key,
   HelpCircle,
   FileText,
+  AlertTriangle,
+  Zap,
 } from 'lucide-react';
 import { executeBkashDisbursement, validateBangladeshiMsisdn } from '../services/bkash/bkash.service';
 import { executeNagadDisbursement, generateNagadSignature, encryptNagadPayload, NAGAD_DEFAULT_CREDENTIALS } from '../services/nagad/nagad.service';
@@ -18,6 +20,11 @@ import { executeStripeCharge } from '../services/stripe/stripe.service';
 import { saveTransaction } from '../services/ledger/ledger.service';
 import { getMappedLabelForGateway } from '../services/gmail/labelManager.service';
 import { Transaction, PaymentGateway, GmailReceiptRequest } from '../types';
+import { SmartRetryPrompt } from './SmartRetryPrompt';
+import {
+  classifyFailure,
+  RetryDisbursementContext,
+} from '../services/retry/smartRetry.service';
 
 interface Props {
   onTransactionCreated: (trx: Transaction) => void;
@@ -38,6 +45,11 @@ export const DisbursementForm: React.FC<Props> = ({
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successTrx, setSuccessTrx] = useState<Transaction | null>(null);
+
+  // Smart Retry State
+  const [retryContext, setRetryContext] = useState<RetryDisbursementContext | null>(null);
+  const [isRetrying, setIsRetrying] = useState<boolean>(false);
+  const [simulateTimeout, setSimulateTimeout] = useState<boolean>(false);
 
   // Common fields
   const [amount, setAmount] = useState<string>('1500');
@@ -85,122 +97,172 @@ export const DisbursementForm: React.FC<Props> = ({
     setInvoiceNo(`INV-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`);
   };
 
+  /**
+   * Core disbursement API executor with preserved parameters
+   */
+  const executeDisbursementCall = async (params: {
+    gateway: PaymentGateway;
+    amount: number;
+    currency: 'BDT' | 'USD' | 'EUR' | 'GBP';
+    invoiceNo: string;
+    receiverPhone: string;
+    customerEmail: string;
+    customerName?: string;
+    note: string;
+    cardNumber?: string;
+    expMonth?: string;
+    expYear?: string;
+    cvc?: string;
+    idempotencyKey: string;
+    sendGmailReceipt: boolean;
+  }): Promise<Transaction> => {
+    // If simulation mode is active, simulate upstream API timeout / network drop
+    if (simulateTimeout) {
+      await new Promise((r) => setTimeout(r, 900));
+      throw new Error(
+        `504 Gateway Timeout: ${params.gateway} upstream payment cluster failed to respond within 15000ms. Socket disconnected.`
+      );
+    }
+
+    let createdTrx: Transaction;
+
+    if (params.gateway === 'BKASH') {
+      const res = await executeBkashDisbursement({
+        receiverMsisdn: params.receiverPhone,
+        amount: params.amount,
+        currency: 'BDT',
+        merchantInvoiceNumber: params.invoiceNo,
+        note: params.note,
+        idempotencyKey: params.idempotencyKey,
+      });
+
+      createdTrx = {
+        id: 'tx_' + Date.now(),
+        trxId: res.trxID,
+        invoiceNo: res.merchantInvoiceNumber,
+        gateway: 'BKASH',
+        type: 'DISBURSEMENT',
+        amount: params.amount,
+        currency: 'BDT',
+        receiver: res.receiverMSISDN,
+        sender: 'bKash Merchant Pool (01700000000)',
+        status: 'COMPLETED',
+        createdAt: res.completedTime,
+        idempotencyKey: params.idempotencyKey,
+        note: params.note.trim() || undefined,
+        gmailReceiptSent: false,
+        gmailRecipient: params.customerEmail,
+        metadata: { note: params.note.trim() || undefined, paymentID: res.paymentID },
+      };
+    } else if (params.gateway === 'NAGAD') {
+      const res = await executeNagadDisbursement({
+        receiverMsisdn: params.receiverPhone,
+        amount: params.amount,
+        currency: 'BDT',
+        merchantInvoiceNumber: params.invoiceNo,
+        idempotencyKey: params.idempotencyKey,
+      });
+
+      createdTrx = {
+        id: 'tx_' + Date.now(),
+        trxId: res.response.trxID,
+        invoiceNo: res.response.merchantInvoice,
+        gateway: 'NAGAD',
+        type: 'DISBURSEMENT',
+        amount: params.amount,
+        currency: 'BDT',
+        receiver: res.response.receiverMSISDN,
+        sender: 'Nagad Merchant Pool (01899990001)',
+        status: 'COMPLETED',
+        createdAt: new Date().toISOString(),
+        idempotencyKey: params.idempotencyKey,
+        note: params.note.trim() || undefined,
+        gmailReceiptSent: false,
+        gmailRecipient: params.customerEmail,
+        metadata: {
+          note: params.note.trim() || undefined,
+          signature: res.signature,
+          issuerRef: res.response.issuerPaymentRefNo,
+        },
+      };
+    } else {
+      const stripeRes = await executeStripeCharge({
+        amount: params.amount,
+        currency: params.currency as any,
+        customerEmail: params.customerEmail,
+        customerName: params.customerName || 'Customer',
+        cardNumber: (params.cardNumber || '4242424242424242').replace(/[^\d]/g, ''),
+        expMonth: params.expMonth || '12',
+        expYear: params.expYear || '28',
+        cvc: params.cvc || '123',
+        idempotencyKey: params.idempotencyKey,
+      });
+
+      createdTrx = {
+        id: 'tx_' + Date.now(),
+        trxId: stripeRes.id,
+        invoiceNo: params.invoiceNo,
+        gateway: 'STRIPE',
+        type: 'PAYMENT_RECEIVED',
+        amount: params.amount,
+        currency: params.currency,
+        receiver: 'PayHub Global Merchant Account',
+        sender: `${params.customerName || 'Customer'} (${params.customerEmail})`,
+        status: 'COMPLETED',
+        createdAt: new Date(stripeRes.created * 1000).toISOString(),
+        idempotencyKey: params.idempotencyKey,
+        note: params.note.trim() || undefined,
+        gmailReceiptSent: false,
+        gmailRecipient: params.customerEmail,
+        metadata: {
+          note: params.note.trim() || undefined,
+          cardBrand: stripeRes.cardBrand,
+          last4: stripeRes.last4,
+          receiptUrl: stripeRes.receiptUrl,
+        },
+      };
+    }
+
+    return createdTrx;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setSuccessTrx(null);
     setIsProcessing(true);
 
+    const numAmount = parseFloat(amount);
+    if (isNaN(numAmount) || numAmount <= 0) {
+      setError(lang === 'bn' ? 'সঠিক টাকার পরিমাণ দিন।' : 'Please enter a valid amount.');
+      setIsProcessing(false);
+      return;
+    }
+
+    const idempotencyKey = `idemp_${activeGateway.toLowerCase()}_${Date.now()}`;
+    const paramsSnapshot = {
+      gateway: activeGateway,
+      amount: numAmount,
+      currency,
+      invoiceNo,
+      receiverPhone,
+      customerEmail,
+      customerName,
+      note,
+      cardNumber,
+      expMonth,
+      expYear,
+      cvc,
+      idempotencyKey,
+      sendGmailReceipt,
+    };
+
     try {
-      const numAmount = parseFloat(amount);
-      if (isNaN(numAmount) || numAmount <= 0) {
-        throw new Error(lang === 'bn' ? 'সঠিক টাকার পরিমাণ দিন।' : 'Please enter a valid amount.');
-      }
-
-      const idempotencyKey = `idemp_${activeGateway.toLowerCase()}_${Date.now()}`;
-      let createdTrx: Transaction;
-
-      if (activeGateway === 'BKASH') {
-        const res = await executeBkashDisbursement({
-          receiverMsisdn: receiverPhone,
-          amount: numAmount,
-          currency: 'BDT',
-          merchantInvoiceNumber: invoiceNo,
-          note,
-          idempotencyKey,
-        });
-
-        createdTrx = {
-          id: 'tx_' + Date.now(),
-          trxId: res.trxID,
-          invoiceNo: res.merchantInvoiceNumber,
-          gateway: 'BKASH',
-          type: 'DISBURSEMENT',
-          amount: numAmount,
-          currency: 'BDT',
-          receiver: res.receiverMSISDN,
-          sender: 'bKash Merchant Pool (01700000000)',
-          status: 'COMPLETED',
-          createdAt: res.completedTime,
-          idempotencyKey,
-          note: note.trim() || undefined,
-          gmailReceiptSent: false,
-          gmailRecipient: customerEmail,
-          metadata: { note: note.trim() || undefined, paymentID: res.paymentID },
-        };
-      } else if (activeGateway === 'NAGAD') {
-        const res = await executeNagadDisbursement({
-          receiverMsisdn: receiverPhone,
-          amount: numAmount,
-          currency: 'BDT',
-          merchantInvoiceNumber: invoiceNo,
-          idempotencyKey,
-        });
-
-        createdTrx = {
-          id: 'tx_' + Date.now(),
-          trxId: res.response.trxID,
-          invoiceNo: res.response.merchantInvoice,
-          gateway: 'NAGAD',
-          type: 'DISBURSEMENT',
-          amount: numAmount,
-          currency: 'BDT',
-          receiver: res.response.receiverMSISDN,
-          sender: 'Nagad Merchant Pool (01899990001)',
-          status: 'COMPLETED',
-          createdAt: new Date().toISOString(),
-          idempotencyKey,
-          note: note.trim() || undefined,
-          gmailReceiptSent: false,
-          gmailRecipient: customerEmail,
-          metadata: {
-            note: note.trim() || undefined,
-            signature: res.signature,
-            issuerRef: res.response.issuerPaymentRefNo,
-          },
-        };
-      } else {
-        // STRIPE
-        const stripeRes = await executeStripeCharge({
-          amount: numAmount,
-          currency,
-          customerEmail,
-          customerName,
-          cardNumber: cardNumber.replace(/[^\d]/g, '') || '4242424242424242',
-          expMonth,
-          expYear,
-          cvc,
-          idempotencyKey,
-        });
-
-        createdTrx = {
-          id: 'tx_' + Date.now(),
-          trxId: stripeRes.id,
-          invoiceNo,
-          gateway: 'STRIPE',
-          type: 'PAYMENT_RECEIVED',
-          amount: numAmount,
-          currency,
-          receiver: 'PayHub Global Merchant Account',
-          sender: `${customerName} (${customerEmail})`,
-          status: 'COMPLETED',
-          createdAt: new Date(stripeRes.created * 1000).toISOString(),
-          idempotencyKey,
-          note: note.trim() || undefined,
-          gmailReceiptSent: false,
-          gmailRecipient: customerEmail,
-          metadata: {
-            note: note.trim() || undefined,
-            cardBrand: stripeRes.cardBrand,
-            last4: stripeRes.last4,
-            receiptUrl: stripeRes.receiptUrl,
-          },
-        };
-      }
-
+      const createdTrx = await executeDisbursementCall(paramsSnapshot);
       saveTransaction(createdTrx);
       onTransactionCreated(createdTrx);
       setSuccessTrx(createdTrx);
+      setRetryContext(null);
 
       // Trigger Gmail receipt confirmation flow if checked
       if (sendGmailReceipt && customerEmail) {
@@ -221,15 +283,161 @@ export const DisbursementForm: React.FC<Props> = ({
       // Reset invoice number for next transaction
       handleRegenerateInvoice();
     } catch (err: any) {
+      const failure = classifyFailure(err);
+
+      if (failure.isRetryable) {
+        // Record failed transaction in ledger for auditability
+        const failedTrx: Transaction = {
+          id: 'tx_fail_' + Date.now(),
+          trxId: 'FAIL_' + Date.now().toString(36).toUpperCase(),
+          invoiceNo,
+          gateway: activeGateway,
+          type: activeGateway === 'STRIPE' ? 'PAYMENT_RECEIVED' : 'DISBURSEMENT',
+          amount: numAmount,
+          currency: activeGateway === 'STRIPE' ? currency : 'BDT',
+          receiver: activeGateway === 'STRIPE' ? 'PayHub Global' : receiverPhone,
+          sender: activeGateway === 'STRIPE' ? customerEmail : `${activeGateway} Merchant Pool`,
+          status: 'FAILED',
+          createdAt: new Date().toISOString(),
+          idempotencyKey,
+          note: note.trim() || undefined,
+          gmailReceiptSent: false,
+          gmailRecipient: customerEmail,
+          metadata: {
+            failureType: failure.type,
+            failureReason: failure.description,
+          },
+        };
+        saveTransaction(failedTrx);
+        onTransactionCreated(failedTrx);
+
+        // Store snapshot of exact parameters for automated Smart Retry
+        setRetryContext({
+          id: failedTrx.id,
+          gateway: activeGateway,
+          amount: numAmount,
+          currency: activeGateway === 'STRIPE' ? currency : 'BDT',
+          invoiceNo,
+          receiverPhone,
+          customerEmail,
+          customerName,
+          note,
+          cardNumber,
+          expMonth,
+          expYear,
+          cvc,
+          sendGmailReceipt,
+          idempotencyKey,
+          failureType: failure.type,
+          failureReason: err.message || failure.description,
+          failedAt: new Date(),
+          attemptCount: 1,
+          maxAttempts: 3,
+        });
+      }
+
       setError(err.message || 'Payment execution failed');
     } finally {
       setIsProcessing(false);
     }
   };
 
+  /**
+   * Smart Retry handler: Re-submits using the exact preserved parameters
+   */
+  const handleSmartRetry = async () => {
+    if (!retryContext) return;
+    setIsRetrying(true);
+    setError(null);
+
+    // If it was a simulated timeout, auto-disable it so the retry succeeds!
+    if (simulateTimeout) {
+      setSimulateTimeout(false);
+    }
+
+    try {
+      const createdTrx = await executeDisbursementCall({
+        gateway: retryContext.gateway,
+        amount: retryContext.amount,
+        currency: retryContext.currency,
+        invoiceNo: retryContext.invoiceNo,
+        receiverPhone: retryContext.receiverPhone,
+        customerEmail: retryContext.customerEmail,
+        customerName: retryContext.customerName,
+        note: retryContext.note,
+        cardNumber: retryContext.cardNumber,
+        expMonth: retryContext.expMonth,
+        expYear: retryContext.expYear,
+        cvc: retryContext.cvc,
+        idempotencyKey: retryContext.idempotencyKey,
+        sendGmailReceipt: retryContext.sendGmailReceipt,
+      });
+
+      createdTrx.metadata = {
+        ...createdTrx.metadata,
+        smartRetried: true,
+        retryAttempt: retryContext.attemptCount + 1,
+      };
+
+      saveTransaction(createdTrx);
+      onTransactionCreated(createdTrx);
+      setSuccessTrx(createdTrx);
+      setRetryContext(null);
+
+      if (retryContext.sendGmailReceipt && retryContext.customerEmail) {
+        onRequestGmailReceipt({
+          toEmail: retryContext.customerEmail,
+          amount: createdTrx.amount,
+          currency: createdTrx.currency,
+          trxId: createdTrx.trxId,
+          invoiceNo: createdTrx.invoiceNo,
+          gateway: createdTrx.gateway,
+          type: createdTrx.type,
+          completedAt: createdTrx.createdAt,
+          label: getMappedLabelForGateway(createdTrx.gateway, createdTrx.type),
+          note: createdTrx.note,
+        });
+      }
+
+      handleRegenerateInvoice();
+    } catch (err: any) {
+      const failure = classifyFailure(err);
+      setRetryContext((prev) => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          attemptCount: prev.attemptCount + 1,
+          failureReason: err.message || failure.description,
+          failedAt: new Date(),
+        };
+      });
+      setError(err.message || 'Retry failed');
+    } finally {
+      setIsRetrying(false);
+    }
+  };
+
+  /**
+   * Populates form inputs with the original parameters from the retry context
+   */
+  const handleEditParametersFromRetry = () => {
+    if (!retryContext) return;
+    setActiveGateway(retryContext.gateway);
+    setAmount(retryContext.amount.toString());
+    setInvoiceNo(retryContext.invoiceNo);
+    setReceiverPhone(retryContext.receiverPhone);
+    setCustomerEmail(retryContext.customerEmail);
+    if (retryContext.customerName) setCustomerName(retryContext.customerName);
+    setNote(retryContext.note);
+    if (retryContext.currency) setCurrency(retryContext.currency as any);
+    setSendGmailReceipt(retryContext.sendGmailReceipt);
+    setRetryContext(null);
+    setError(null);
+  };
+
   return (
     <div className="space-y-6">
-      {/* Gateway Selector Cards */}
+      {/* Gateway Selector Cards with Brand-Specific Gradients */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {/* bKash Card */}
         <button
@@ -237,21 +445,21 @@ export const DisbursementForm: React.FC<Props> = ({
           onClick={() => setActiveGateway('BKASH')}
           className={`flex items-start gap-4 p-4 rounded-2xl border text-left transition relative cursor-pointer ${
             activeGateway === 'BKASH'
-              ? 'bg-gradient-to-br from-pink-950/60 to-slate-900 border-pink-500 ring-2 ring-pink-500/20 shadow-xl'
-              : 'bg-slate-900/60 border-slate-800 hover:border-slate-700 text-slate-300'
+              ? 'brand-card-bkash border-rose-500 ring-2 ring-rose-500/30 shadow-xl'
+              : 'bg-white dark:bg-slate-900/60 border-slate-200 dark:border-slate-800 hover:border-rose-300 text-slate-700 dark:text-slate-300 shadow-sm'
           }`}
         >
-          <div className="w-12 h-12 rounded-xl bg-pink-600/20 border border-pink-500/30 flex items-center justify-center text-pink-400 font-extrabold text-base shrink-0">
+          <div className="w-12 h-12 rounded-xl bg-rose-600 text-white flex items-center justify-center font-extrabold text-base shrink-0 shadow-md">
             bK
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-bold text-white text-sm">bKash B2C</span>
-              <span className="text-[10px] bg-pink-500/20 text-pink-300 px-2 py-0.5 rounded-full font-mono">
+              <span className="font-bold text-slate-900 dark:text-white text-sm">bKash B2C</span>
+              <span className="text-[10px] bg-rose-100 dark:bg-pink-500/20 text-rose-700 dark:text-pink-300 border border-rose-200 dark:border-pink-500/30 px-2 py-0.5 rounded-full font-mono font-semibold">
                 Disbursement
               </span>
             </div>
-            <p className="text-xs text-slate-400 mt-1">
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
               {lang === 'bn' ? 'অফিশিয়াল বিটুসি পেআউট এপিআই' : 'Official B2C instant payout'}
             </p>
           </div>
@@ -263,21 +471,21 @@ export const DisbursementForm: React.FC<Props> = ({
           onClick={() => setActiveGateway('NAGAD')}
           className={`flex items-start gap-4 p-4 rounded-2xl border text-left transition relative cursor-pointer ${
             activeGateway === 'NAGAD'
-              ? 'bg-gradient-to-br from-orange-950/60 to-slate-900 border-orange-500 ring-2 ring-orange-500/20 shadow-xl'
-              : 'bg-slate-900/60 border-slate-800 hover:border-slate-700 text-slate-300'
+              ? 'brand-card-nagad border-orange-500 ring-2 ring-orange-500/30 shadow-xl'
+              : 'bg-white dark:bg-slate-900/60 border-slate-200 dark:border-slate-800 hover:border-orange-300 text-slate-700 dark:text-slate-300 shadow-sm'
           }`}
         >
-          <div className="w-12 h-12 rounded-xl bg-orange-600/20 border border-orange-500/30 flex items-center justify-center text-orange-400 font-extrabold text-base shrink-0">
+          <div className="w-12 h-12 rounded-xl bg-orange-600 text-white flex items-center justify-center font-extrabold text-base shrink-0 shadow-md">
             NG
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-bold text-white text-sm">Nagad B2C</span>
-              <span className="text-[10px] bg-orange-500/20 text-orange-300 px-2 py-0.5 rounded-full font-mono">
+              <span className="font-bold text-slate-900 dark:text-white text-sm">Nagad B2C</span>
+              <span className="text-[10px] bg-orange-100 dark:bg-orange-500/20 text-orange-700 dark:text-orange-300 border border-orange-200 dark:border-orange-500/30 px-2 py-0.5 rounded-full font-mono font-semibold">
                 RSA &bull; HMAC
               </span>
             </div>
-            <p className="text-xs text-slate-400 mt-1">
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
               {lang === 'bn' ? 'পাবলিক কি এনক্রিপশন ও সিগনেচার' : 'Encrypted OAEP payout'}
             </p>
           </div>
@@ -289,21 +497,21 @@ export const DisbursementForm: React.FC<Props> = ({
           onClick={() => setActiveGateway('STRIPE')}
           className={`flex items-start gap-4 p-4 rounded-2xl border text-left transition relative cursor-pointer ${
             activeGateway === 'STRIPE'
-              ? 'bg-gradient-to-br from-indigo-950/60 to-slate-900 border-indigo-500 ring-2 ring-indigo-500/20 shadow-xl'
-              : 'bg-slate-900/60 border-slate-800 hover:border-slate-700 text-slate-300'
+              ? 'brand-card-stripe border-indigo-500 ring-2 ring-indigo-500/30 shadow-xl'
+              : 'bg-white dark:bg-slate-900/60 border-slate-200 dark:border-slate-800 hover:border-indigo-300 text-slate-700 dark:text-slate-300 shadow-sm'
           }`}
         >
-          <div className="w-12 h-12 rounded-xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 font-extrabold text-base shrink-0">
+          <div className="w-12 h-12 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-extrabold text-base shrink-0 shadow-md">
             <CreditCard className="w-6 h-6" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-bold text-white text-sm">Stripe Global</span>
-              <span className="text-[10px] bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded-full font-mono">
+              <span className="font-bold text-slate-900 dark:text-white text-sm">Stripe Global</span>
+              <span className="text-[10px] bg-indigo-100 dark:bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-500/30 px-2 py-0.5 rounded-full font-mono font-semibold">
                 Cards / USD
               </span>
             </div>
-            <p className="text-xs text-slate-400 mt-1">
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
               {lang === 'bn' ? 'আন্তর্জাতিক ক্রেডিট/ডেবিট কার্ড' : 'Global card collection'}
             </p>
           </div>
@@ -601,8 +809,25 @@ export const DisbursementForm: React.FC<Props> = ({
           </div>
         )}
 
-        {/* Error Notification */}
-        {error && (
+        {/* Smart Retry Prompt for Failed Transactions (Timeout / Network Drop) */}
+        {retryContext && (
+          <div className="mt-4">
+            <SmartRetryPrompt
+              context={retryContext}
+              onRetry={handleSmartRetry}
+              onDismiss={() => {
+                setRetryContext(null);
+                setError(null);
+              }}
+              onEditParameters={handleEditParametersFromRetry}
+              isRetrying={isRetrying}
+              lang={lang}
+            />
+          </div>
+        )}
+
+        {/* Standard Error Notification (Only when no retryContext is active) */}
+        {error && !retryContext && (
           <div className="mt-4 p-3 rounded-xl bg-rose-950/60 border border-rose-800 text-rose-300 text-xs flex items-center gap-2">
             <span>{error}</span>
           </div>
@@ -623,11 +848,32 @@ export const DisbursementForm: React.FC<Props> = ({
           </div>
         )}
 
-        {/* Submit Button */}
-        <div className="mt-6 flex items-center justify-between">
-          <div className="text-xs text-slate-400 flex items-center gap-1.5">
-            <Shield className="w-3.5 h-3.5 text-indigo-400" />
-            <span>Idempotency-Key Protected</span>
+        {/* Submit & Security Controls Footer */}
+        <div className="mt-6 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
+          <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400">
+            <div className="flex items-center gap-1.5">
+              <Shield className="w-3.5 h-3.5 text-indigo-400" />
+              <span>Idempotency-Key Protected</span>
+            </div>
+
+            {/* Smart Retry Simulation Test Toggle */}
+            <button
+              type="button"
+              onClick={() => setSimulateTimeout(!simulateTimeout)}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-mono transition cursor-pointer border ${
+                simulateTimeout
+                  ? 'bg-amber-950/80 border-amber-600 text-amber-300 ring-1 ring-amber-500/50'
+                  : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:text-slate-300'
+              }`}
+              title={
+                simulateTimeout
+                  ? 'Click to turn off timeout simulation'
+                  : 'Click to simulate a 504 Gateway Timeout to test Smart Retry'
+              }
+            >
+              <Zap className={`w-3 h-3 ${simulateTimeout ? 'text-amber-400 animate-pulse' : 'text-slate-500'}`} />
+              <span>{simulateTimeout ? 'Simulate Timeout: ON' : 'Simulate Timeout'}</span>
+            </button>
           </div>
 
           <button

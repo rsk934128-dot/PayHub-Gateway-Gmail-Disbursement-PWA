@@ -1,6 +1,18 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="light">
   <head>
+    <script>
+      try {
+        var savedTheme = localStorage.getItem('payhub_theme') || 'light';
+        if (savedTheme === 'dark') {
+          document.documentElement.classList.add('dark');
+          document.documentElement.classList.remove('light');
+        } else {
+          document.documentElement.classList.remove('dark');
+          document.documentElement.classList.add('light');
+        }
+      } catch (e) {}
+    </script>
     <script>
       (function() {
         // Intercept WebSocket for vite-hmr to prevent connection errors
@@ -37,65 +49,61 @@
           }
         } catch (e) {}
 
-        // Safe console wrapper with setter interception
-        var currentConsole = window.console;
-        function filterViteError(fn) {
-          return function() {
-            if (arguments.length > 0) {
-              var s = String(arguments[0] || '');
-              if (
-                s.indexOf('[vite]') !== -1 ||
-                s.indexOf('WebSocket') !== -1 ||
-                s.indexOf('websocket') !== -1 ||
-                s.indexOf('ws://') !== -1 ||
-                s.indexOf('wss://') !== -1
-              ) {
-                return;
-              }
-            }
-            if (typeof fn === 'function') {
-              return fn.apply(this, arguments);
-            }
-          };
+        // Global console interceptor to silence harmless Vite HMR noise
+        var methods = ['log', 'info', 'warn', 'error', 'debug', 'trace'];
+        function isViteMsg(arg) {
+          if (!arg) return false;
+          var str = '';
+          if (typeof arg === 'string') {
+            str = arg;
+          } else if (arg instanceof Error) {
+            str = (arg.message || '') + ' ' + (arg.stack || '');
+          } else {
+            try { str = JSON.stringify(arg); } catch (e) { str = String(arg); }
+          }
+          var lower = str.toLowerCase();
+          return str.indexOf('[vite]') !== -1 || lower.indexOf('websocket') !== -1 || lower.indexOf('vite-hmr') !== -1 || lower.indexOf('ws://') !== -1;
         }
 
-        if (currentConsole) {
-          if (currentConsole.error) currentConsole.error = filterViteError(currentConsole.error);
-          if (currentConsole.warn) currentConsole.warn = filterViteError(currentConsole.warn);
+        function wrapConsole(cons) {
+          if (!cons) return;
+          methods.forEach(function(m) {
+            var orig = cons[m];
+            if (typeof orig === 'function') {
+              cons[m] = function() {
+                for (var i = 0; i < arguments.length; i++) {
+                  if (isViteMsg(arguments[i])) return;
+                }
+                return orig.apply(this, arguments);
+              };
+            }
+          });
         }
+
+        wrapConsole(window.console);
 
         try {
+          var _console = window.console;
           Object.defineProperty(window, 'console', {
             configurable: true,
             enumerable: true,
-            get: function() {
-              return currentConsole;
-            },
-            set: function(newCons) {
-              if (newCons) {
-                if (typeof newCons.error === 'function') {
-                  newCons.error = filterViteError(newCons.error);
-                }
-                if (typeof newCons.warn === 'function') {
-                  newCons.warn = filterViteError(newCons.warn);
-                }
-              }
-              currentConsole = newCons;
+            get: function() { return _console; },
+            set: function(val) {
+              wrapConsole(val);
+              _console = val;
             }
           });
         } catch (e) {}
 
         window.addEventListener('error', function(e) {
-          var msg = e.message || (e.error && e.error.message) || '';
-          if (typeof msg === 'string' && (msg.indexOf('[vite]') !== -1 || msg.indexOf('WebSocket') !== -1 || msg.indexOf('websocket') !== -1)) {
+          if (isViteMsg(e.message) || isViteMsg(e.error)) {
             e.preventDefault();
             e.stopImmediatePropagation();
           }
         }, true);
 
         window.addEventListener('unhandledrejection', function(e) {
-          var r = e.reason ? (e.reason.message || String(e.reason)) : '';
-          if (typeof r === 'string' && (r.indexOf('[vite]') !== -1 || r.indexOf('WebSocket') !== -1 || r.indexOf('websocket') !== -1)) {
+          if (isViteMsg(e.reason)) {
             e.preventDefault();
             e.stopImmediatePropagation();
           }
@@ -118,7 +126,7 @@
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
     <link rel="apple-touch-icon" href="/icon.svg" />
   </head>
-  <body class="bg-slate-950 text-slate-100 antialiased selection:bg-indigo-500 selection:text-white">
+  <body class="antialiased selection:bg-indigo-500 selection:text-white">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

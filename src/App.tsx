@@ -13,6 +13,11 @@ import {
   AlertCircle,
   ExternalLink,
   Bot,
+  Webhook,
+  ShieldAlert,
+  LayoutDashboard,
+  Sun,
+  Moon,
 } from 'lucide-react';
 import { User } from 'firebase/auth';
 import { initAuth, googleSignIn, logoutGoogle, getAccessToken } from './services/gmail/auth';
@@ -20,22 +25,50 @@ import { sendPaymentReceiptEmail } from './services/gmail/gmail.service';
 import { getTransactions, updateTransaction, saveTransaction } from './services/ledger/ledger.service';
 import { Transaction, GmailReceiptRequest } from './types';
 import { getMappedLabelForGateway } from './services/gmail/labelManager.service';
+import { recordAuditEvent } from './services/audit/audit.service';
 import { PWAInstallButton } from './components/PWAInstallButton';
 import { OfflineIndicator } from './hooks/useOnlineStatus';
+import { DashboardSummary } from './components/DashboardSummary';
 import { DisbursementForm } from './components/DisbursementForm';
 import { AiAgentChat } from './components/AiAgentChat';
 import { TransactionLedger } from './components/TransactionLedger';
+import { WebhookManager } from './components/WebhookManager';
+import { AuditLogView } from './components/AuditLogView';
 import { GmailHub } from './components/GmailHub';
 import { ApiSandbox } from './components/ApiSandbox';
 import { SecurityCryptoView } from './components/SecurityCryptoView';
 import { GmailConfirmModal } from './components/GmailConfirmModal';
 import { TransactionDetailModal } from './components/TransactionDetailModal';
 
-type NavTab = 'disbursement' | 'agent' | 'ledger' | 'gmail' | 'sandbox' | 'security';
+type NavTab = 'dashboard' | 'disbursement' | 'agent' | 'ledger' | 'webhooks' | 'audit' | 'gmail' | 'sandbox' | 'security';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<NavTab>('disbursement');
+  const [activeTab, setActiveTab] = useState<NavTab>('dashboard');
   const [lang, setLang] = useState<'en' | 'bn'>('en');
+
+  // Theme State: 'light' (vibrant colorful mode) or 'dark' (executive dark slate)
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    try {
+      const saved = localStorage.getItem('payhub_theme');
+      if (saved === 'light' || saved === 'dark') return saved;
+    } catch {}
+    return 'light'; // Default to Light Mode so the app is not "সাদা কালো" / dark!
+  });
+
+  useEffect(() => {
+    if (theme === 'light') {
+      document.body.classList.add('light-mode');
+      document.documentElement.classList.remove('dark');
+      document.documentElement.classList.add('light');
+    } else {
+      document.body.classList.remove('light-mode');
+      document.documentElement.classList.add('dark');
+      document.documentElement.classList.remove('light');
+    }
+    try {
+      localStorage.setItem('payhub_theme', theme);
+    } catch {}
+  }, [theme]);
 
   // Firebase Auth & Gmail Access Token
   const [user, setUser] = useState<User | null>(null);
@@ -54,7 +87,36 @@ export default function App() {
 
   // Load transactions and init Firebase auth listener on mount
   useEffect(() => {
-    setTransactions(getTransactions());
+    const loadedTx = getTransactions();
+    setTransactions(loadedTx);
+
+    // If opened via mobile QR scan (/?view=receipt&trx=...)
+    try {
+      const searchParams = new URLSearchParams(window.location.search);
+      if (searchParams.get('view') === 'receipt') {
+        const trx = searchParams.get('trx');
+        const existing = loadedTx.find((t) => t.trxId === trx);
+        if (existing) {
+          setSelectedTransaction(existing);
+        } else if (trx) {
+          setSelectedTransaction({
+            id: 'tx_scanned_' + trx,
+            trxId: trx,
+            invoiceNo: searchParams.get('inv') || 'INV-SCANNED',
+            gateway: (searchParams.get('gw') || 'BKASH') as any,
+            type: 'DISBURSEMENT',
+            amount: Number(searchParams.get('amt') || '0'),
+            currency: (searchParams.get('cur') || 'BDT') as any,
+            receiver: searchParams.get('rec') || 'Beneficiary Account',
+            sender: 'PayHub Merchant Pool',
+            status: (searchParams.get('status') || 'COMPLETED') as any,
+            createdAt: searchParams.get('dt') || new Date().toISOString(),
+            idempotencyKey: 'scanned_idemp_' + trx,
+            gmailReceiptSent: false,
+          });
+        }
+      }
+    } catch {}
 
     const unsubscribe = initAuth(
       (authedUser, token) => {
@@ -104,6 +166,27 @@ export default function App() {
 
   const handleTransactionCreated = (newTx: Transaction) => {
     setTransactions(getTransactions());
+    
+    // Log sensitive transaction to immutable compliance audit trail
+    recordAuditEvent({
+      category: 'DISBURSEMENT',
+      severity: newTx.amount >= 20000 ? 'CRITICAL' : 'WARNING',
+      action: `MANUAL_DISBURSEMENT_${newTx.gateway}`,
+      status: newTx.status === 'COMPLETED' ? 'SUCCESS' : 'FAILED',
+      actor: {
+        email: user?.email || 'monikhoku10@gmail.com',
+        role: 'FINANCE_OPERATOR',
+      },
+      targetResource: `${newTx.gateway}: ${newTx.receiver} (${newTx.invoiceNo})`,
+      details: {
+        trxId: newTx.trxId,
+        amount: newTx.amount,
+        currency: newTx.currency,
+        idempotencyKey: newTx.idempotencyKey,
+        type: newTx.type,
+      },
+    });
+
     showToast(
       lang === 'bn'
         ? `লেনদেন ${newTx.trxId} সফলভাবে সম্পন্ন হয়েছে`
@@ -144,6 +227,26 @@ export default function App() {
         setTransactions(getTransactions());
       }
 
+      // Log Gmail receipt dispatch to compliance audit trail
+      recordAuditEvent({
+        category: 'GMAIL_DISPATCH',
+        severity: 'INFO',
+        action: 'GMAIL_PAYMENT_VOUCHER_AUTHORIZED',
+        status: 'SUCCESS',
+        actor: {
+          email: user.email || 'monikhoku10@gmail.com',
+          role: 'FINANCE_OPERATOR',
+        },
+        targetResource: `Recipient: ${pendingReceipt.toEmail}`,
+        details: {
+          trxId: pendingReceipt.trxId,
+          invoiceNo: pendingReceipt.invoiceNo,
+          amount: `${pendingReceipt.amount} ${pendingReceipt.currency}`,
+          label: pendingReceipt.label || 'Payments/Disbursed',
+          gmailMessageId: res.messageId,
+        },
+      });
+
       setIsConfirmModalOpen(false);
       setPendingReceipt(null);
       showToast(
@@ -160,8 +263,26 @@ export default function App() {
     }
   };
 
+  const getTabClass = (tab: NavTab, specialActive?: string) => {
+    if (activeTab === tab) {
+      return specialActive || 'bg-indigo-600 text-white shadow-sm font-semibold';
+    }
+    return theme === 'light'
+      ? 'text-slate-600 hover:text-indigo-600 hover:bg-slate-200/70 font-medium'
+      : 'text-slate-400 hover:text-white hover:bg-slate-800/60 font-medium';
+  };
+
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
+    <div
+      className={`min-h-screen flex flex-col font-sans transition-colors duration-200 ${
+        theme === 'light'
+          ? 'bg-slate-50 text-slate-900'
+          : 'bg-[#070a13] text-slate-100'
+      }`}
+    >
+      {/* Top Colorful Brand Accent Line */}
+      <div className="h-1.5 w-full bg-gradient-to-r from-rose-500 via-orange-500 via-emerald-500 to-indigo-600 shadow-md" />
+
       {/* Offline Banner */}
       <OfflineIndicator />
 
@@ -184,37 +305,67 @@ export default function App() {
       )}
 
       {/* Main Navigation Header */}
-      <header className="sticky top-0 z-40 bg-slate-900/90 backdrop-blur-md border-b border-slate-800">
+      <header
+        className={`sticky top-0 z-40 backdrop-blur-md border-b transition-colors ${
+          theme === 'light'
+            ? 'bg-white/95 border-slate-200 shadow-sm'
+            : 'bg-slate-900/90 border-slate-800'
+        }`}
+      >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           {/* Logo & Brand */}
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 via-violet-600 to-cyan-400 p-0.5 shadow-md">
-              <div className="w-full h-full bg-slate-950 rounded-[10px] flex items-center justify-center">
-                <Wallet className="w-5 h-5 text-indigo-400" />
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-pink-500 via-orange-500 to-indigo-600 p-0.5 shadow-md">
+              <div
+                className={`w-full h-full rounded-[10px] flex items-center justify-center ${
+                  theme === 'light' ? 'bg-white' : 'bg-slate-950'
+                }`}
+              >
+                <Wallet className="w-5 h-5 text-indigo-600" />
               </div>
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <span className="font-extrabold text-base text-white tracking-tight">PayHub</span>
-                <span className="text-[10px] bg-indigo-500/20 text-indigo-300 font-mono font-bold px-1.5 py-0.5 rounded border border-indigo-500/30">
-                  B2C PWA
+              <div className="flex items-center gap-1.5">
+                <span className="font-extrabold text-base tracking-tight">PayHub</span>
+                <span className="text-[10px] bg-rose-600 text-white font-mono font-bold px-1.5 py-0.2 rounded shadow-sm">
+                  bKash
+                </span>
+                <span className="text-[10px] bg-orange-500 text-white font-mono font-bold px-1.5 py-0.2 rounded shadow-sm">
+                  Nagad
+                </span>
+                <span className="text-[10px] bg-indigo-600 text-white font-mono font-bold px-1.5 py-0.2 rounded shadow-sm">
+                  Stripe
                 </span>
               </div>
-              <div className="hidden sm:block text-[11px] text-slate-400">
-                Stripe &bull; bKash B2C &bull; Nagad &bull; Gmail API
+              <div
+                className={`hidden sm:block text-[11px] ${
+                  theme === 'light' ? 'text-slate-500' : 'text-slate-400'
+                }`}
+              >
+                Unified B2C Disbursement & Automated Gmail Receipts
               </div>
             </div>
           </div>
 
           {/* Center Tabs for Desktop */}
-          <nav className="hidden md:flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
+          <nav
+            className={`hidden md:flex items-center gap-1 p-1 rounded-xl border text-xs transition-colors ${
+              theme === 'light'
+                ? 'bg-slate-100/90 border-slate-200'
+                : 'bg-slate-950 border-slate-800'
+            }`}
+          >
+            <button
+              onClick={() => setActiveTab('dashboard')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition cursor-pointer ${getTabClass('dashboard')}`}
+            >
+              <LayoutDashboard className="w-3.5 h-3.5" />
+              <span>{lang === 'bn' ? 'ড্যাশবোর্ড' : 'Dashboard'}</span>
+            </button>
+
             <button
               onClick={() => setActiveTab('disbursement')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition cursor-pointer ${
-                activeTab === 'disbursement'
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-white'
-              }`}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition cursor-pointer ${getTabClass('disbursement')}`}
             >
               <Send className="w-3.5 h-3.5" />
               <span>{lang === 'bn' ? 'পেআউট ও পেমেন্ট' : 'Disburse & Pay'}</span>
@@ -222,11 +373,10 @@ export default function App() {
 
             <button
               onClick={() => setActiveTab('agent')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition cursor-pointer relative ${
-                activeTab === 'agent'
-                  ? 'bg-gradient-to-r from-pink-600 to-indigo-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-pink-300'
-              }`}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition cursor-pointer relative ${getTabClass(
+                'agent',
+                'bg-gradient-to-r from-pink-600 to-indigo-600 text-white shadow-sm font-semibold'
+              )}`}
             >
               <Bot className="w-3.5 h-3.5 text-pink-400" />
               <span>{lang === 'bn' ? 'এআই এজেন্ট' : 'AI Agent'}</span>
@@ -237,23 +387,31 @@ export default function App() {
 
             <button
               onClick={() => setActiveTab('ledger')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition cursor-pointer ${
-                activeTab === 'ledger'
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-white'
-              }`}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition cursor-pointer ${getTabClass('ledger')}`}
             >
               <BookOpen className="w-3.5 h-3.5" />
               <span>{lang === 'bn' ? 'লেনদেন লেজার' : 'Ledger'}</span>
             </button>
 
             <button
+              onClick={() => setActiveTab('webhooks')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition cursor-pointer ${getTabClass('webhooks')}`}
+            >
+              <Webhook className="w-3.5 h-3.5" />
+              <span>{lang === 'bn' ? 'ওয়েবহুক' : 'Webhooks'}</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('audit')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition cursor-pointer ${getTabClass('audit')}`}
+            >
+              <ShieldAlert className="w-3.5 h-3.5" />
+              <span>{lang === 'bn' ? 'অডিট লগ' : 'Audit Log'}</span>
+            </button>
+
+            <button
               onClick={() => setActiveTab('gmail')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition cursor-pointer relative ${
-                activeTab === 'gmail'
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-white'
-              }`}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition cursor-pointer relative ${getTabClass('gmail')}`}
             >
               <Mail className="w-3.5 h-3.5" />
               <span>{lang === 'bn' ? 'জিমেইল রসিদ' : 'Gmail Hub'}</span>
@@ -262,11 +420,7 @@ export default function App() {
 
             <button
               onClick={() => setActiveTab('sandbox')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition cursor-pointer ${
-                activeTab === 'sandbox'
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-white'
-              }`}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition cursor-pointer ${getTabClass('sandbox')}`}
             >
               <Terminal className="w-3.5 h-3.5" />
               <span>{lang === 'bn' ? 'এপিআই স্যান্ডবক্স' : 'API Sandbox'}</span>
@@ -274,11 +428,7 @@ export default function App() {
 
             <button
               onClick={() => setActiveTab('security')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition cursor-pointer ${
-                activeTab === 'security'
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-white'
-              }`}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition cursor-pointer ${getTabClass('security')}`}
             >
               <Shield className="w-3.5 h-3.5" />
               <span>{lang === 'bn' ? 'নিরাপত্তা ও টেস্ট' : 'Security & Tests'}</span>
@@ -286,15 +436,42 @@ export default function App() {
           </nav>
 
           {/* Right Header Actions */}
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2">
+            {/* Theme Toggle (Light / Dark Mode) */}
+            <button
+              onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition cursor-pointer shadow-sm ${
+                theme === 'light'
+                  ? 'bg-gradient-to-r from-amber-400 to-orange-400 text-slate-950 border-amber-300 hover:brightness-105'
+                  : 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white border-indigo-400/50 hover:brightness-110 shadow-indigo-900/30'
+              }`}
+              title={theme === 'light' ? 'Switch to Dark Neon Mode (ডার্ক মোড)' : 'Switch to Light Vibrant Mode (উজ্জ্বল রঙিন মোড)'}
+            >
+              {theme === 'light' ? (
+                <>
+                  <Sun className="w-3.5 h-3.5 text-slate-950 fill-amber-300" />
+                  <span>{lang === 'bn' ? 'লাইট মোড (রঙিন)' : 'Light Mode'}</span>
+                </>
+              ) : (
+                <>
+                  <Moon className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
+                  <span>{lang === 'bn' ? 'ডার্ক মোড (নিয়ন)' : 'Dark Mode'}</span>
+                </>
+              )}
+            </button>
+
             {/* Language Switcher */}
             <button
               onClick={() => setLang(lang === 'en' ? 'bn' : 'en')}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-slate-700 bg-slate-800/80 text-xs text-slate-300 hover:text-white transition cursor-pointer"
+              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl border text-xs font-semibold transition cursor-pointer shadow-sm ${
+                theme === 'light'
+                  ? 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:text-indigo-600'
+                  : 'bg-slate-800/90 border-slate-700 text-slate-300 hover:text-white'
+              }`}
               title="Switch Language / ভাষা পরিবর্তন"
             >
-              <Globe className="w-3.5 h-3.5 text-indigo-400" />
-              <span className="font-semibold">{lang === 'en' ? 'বাংলা' : 'EN'}</span>
+              <Globe className="w-3.5 h-3.5 text-indigo-500" />
+              <span>{lang === 'en' ? 'বাংলা' : 'EN'}</span>
             </button>
 
             {/* In-App PWA Install Button */}
@@ -332,11 +509,38 @@ export default function App() {
         </div>
 
         {/* Mobile Tab Bar */}
-        <div className="md:hidden flex items-center justify-around border-t border-slate-800 bg-slate-950 py-2 px-1 text-[11px]">
+        <div
+          className={`md:hidden flex items-center justify-around border-t py-2 px-1 text-[11px] overflow-x-auto ${
+            theme === 'light'
+              ? 'bg-white border-slate-200 shadow-inner'
+              : 'bg-slate-950 border-slate-800'
+          }`}
+        >
+          <button
+            onClick={() => setActiveTab('dashboard')}
+            className={`flex flex-col items-center gap-1 ${
+              activeTab === 'dashboard'
+                ? theme === 'light'
+                  ? 'text-indigo-600 font-bold'
+                  : 'text-indigo-400 font-bold'
+                : theme === 'light'
+                ? 'text-slate-500 hover:text-slate-800'
+                : 'text-slate-400'
+            }`}
+          >
+            <LayoutDashboard className="w-4 h-4" />
+            <span>Dashboard</span>
+          </button>
           <button
             onClick={() => setActiveTab('disbursement')}
             className={`flex flex-col items-center gap-1 ${
-              activeTab === 'disbursement' ? 'text-indigo-400 font-bold' : 'text-slate-400'
+              activeTab === 'disbursement'
+                ? theme === 'light'
+                  ? 'text-indigo-600 font-bold'
+                  : 'text-indigo-400 font-bold'
+                : theme === 'light'
+                ? 'text-slate-500 hover:text-slate-800'
+                : 'text-slate-400'
             }`}
           >
             <Send className="w-4 h-4" />
@@ -345,7 +549,11 @@ export default function App() {
           <button
             onClick={() => setActiveTab('agent')}
             className={`flex flex-col items-center gap-1 ${
-              activeTab === 'agent' ? 'text-pink-400 font-bold' : 'text-slate-400'
+              activeTab === 'agent'
+                ? 'text-pink-500 font-bold'
+                : theme === 'light'
+                ? 'text-slate-500 hover:text-pink-600'
+                : 'text-slate-400'
             }`}
           >
             <Bot className="w-4 h-4" />
@@ -354,16 +562,58 @@ export default function App() {
           <button
             onClick={() => setActiveTab('ledger')}
             className={`flex flex-col items-center gap-1 ${
-              activeTab === 'ledger' ? 'text-indigo-400 font-bold' : 'text-slate-400'
+              activeTab === 'ledger'
+                ? theme === 'light'
+                  ? 'text-indigo-600 font-bold'
+                  : 'text-indigo-400 font-bold'
+                : theme === 'light'
+                ? 'text-slate-500 hover:text-slate-800'
+                : 'text-slate-400'
             }`}
           >
             <BookOpen className="w-4 h-4" />
             <span>Ledger</span>
           </button>
           <button
+            onClick={() => setActiveTab('webhooks')}
+            className={`flex flex-col items-center gap-1 ${
+              activeTab === 'webhooks'
+                ? theme === 'light'
+                  ? 'text-indigo-600 font-bold'
+                  : 'text-indigo-400 font-bold'
+                : theme === 'light'
+                ? 'text-slate-500 hover:text-slate-800'
+                : 'text-slate-400'
+            }`}
+          >
+            <Webhook className="w-4 h-4" />
+            <span>Webhooks</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('audit')}
+            className={`flex flex-col items-center gap-1 ${
+              activeTab === 'audit'
+                ? theme === 'light'
+                  ? 'text-indigo-600 font-bold'
+                  : 'text-indigo-400 font-bold'
+                : theme === 'light'
+                ? 'text-slate-500 hover:text-slate-800'
+                : 'text-slate-400'
+            }`}
+          >
+            <ShieldAlert className="w-4 h-4" />
+            <span>Audit</span>
+          </button>
+          <button
             onClick={() => setActiveTab('gmail')}
             className={`flex flex-col items-center gap-1 relative ${
-              activeTab === 'gmail' ? 'text-indigo-400 font-bold' : 'text-slate-400'
+              activeTab === 'gmail'
+                ? theme === 'light'
+                  ? 'text-indigo-600 font-bold'
+                  : 'text-indigo-400 font-bold'
+                : theme === 'light'
+                ? 'text-slate-500 hover:text-slate-800'
+                : 'text-slate-400'
             }`}
           >
             <Mail className="w-4 h-4" />
@@ -373,7 +623,13 @@ export default function App() {
           <button
             onClick={() => setActiveTab('sandbox')}
             className={`flex flex-col items-center gap-1 ${
-              activeTab === 'sandbox' ? 'text-indigo-400 font-bold' : 'text-slate-400'
+              activeTab === 'sandbox'
+                ? theme === 'light'
+                  ? 'text-indigo-600 font-bold'
+                  : 'text-indigo-400 font-bold'
+                : theme === 'light'
+                ? 'text-slate-500 hover:text-slate-800'
+                : 'text-slate-400'
             }`}
           >
             <Terminal className="w-4 h-4" />
@@ -382,7 +638,13 @@ export default function App() {
           <button
             onClick={() => setActiveTab('security')}
             className={`flex flex-col items-center gap-1 ${
-              activeTab === 'security' ? 'text-indigo-400 font-bold' : 'text-slate-400'
+              activeTab === 'security'
+                ? theme === 'light'
+                  ? 'text-indigo-600 font-bold'
+                  : 'text-indigo-400 font-bold'
+                : theme === 'light'
+                ? 'text-slate-500 hover:text-slate-800'
+                : 'text-slate-400'
             }`}
           >
             <Shield className="w-4 h-4" />
@@ -393,6 +655,15 @@ export default function App() {
 
       {/* Main View Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {activeTab === 'dashboard' && (
+          <DashboardSummary
+            transactions={transactions}
+            onNavigateTab={(tab) => setActiveTab(tab as any)}
+            lang={lang}
+            theme={theme}
+          />
+        )}
+
         {activeTab === 'disbursement' && (
           <DisbursementForm
             onTransactionCreated={handleTransactionCreated}
@@ -431,6 +702,12 @@ export default function App() {
             onRefresh={() => setTransactions(getTransactions())}
             lang={lang}
           />
+        )}
+
+        {activeTab === 'webhooks' && <WebhookManager lang={lang} />}
+
+        {activeTab === 'audit' && (
+          <AuditLogView userEmail={user?.email || undefined} lang={lang} />
         )}
 
         {activeTab === 'gmail' && (
